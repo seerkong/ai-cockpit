@@ -9,7 +9,9 @@
   "scripts": {
     "postinstall": "bun run --filter frontend postinstall",
     "dev:backend": "bun run --filter backend dev",
+    "dev:backend2": "PORT=3101 bun run --filter backend dev",
     "dev:frontend": "bun run --filter frontend dev",
+    "dev:frontend2": "VITE_BACKEND_PORT=3101 bun run --filter frontend dev -- --port 3100",
     "test:backend": "bun run --filter backend test",
     "test:frontend": "bun run --filter frontend test",
     "test:e2e": "playwright test -c playwright.config.ts",
