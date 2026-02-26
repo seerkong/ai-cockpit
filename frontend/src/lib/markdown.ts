@@ -104,7 +104,7 @@ async function getMarked() {
         return `<pre class="md-code"><code class="hljs ${langClass}">${highlighted}</code></pre>`;
       };
 
-      markedMod.marked.setOptions({ gfm: true, breaks: true, renderer });
+      markedMod.marked.setOptions({ gfm: true, breaks: false, renderer });
       _markedConfigured = true;
       return markedMod;
     })();
