@@ -1,0 +1,14 @@
+diff --git a/node_modules/dockview-core/dist/esm/gridview/basePanelView.js b/node_modules/dockview-core/dist/esm/gridview/basePanelView.js
+index 74f2b71..9d1b0d0 100644
+--- a/node_modules/dockview-core/dist/esm/gridview/basePanelView.js
++++ b/node_modules/dockview-core/dist/esm/gridview/basePanelView.js
+@@ -74,1 +74,1 @@
+-        (_b = this.part) === null || _b === void 0 ? void 0 : _b.update({ params: this._params.params });
++        (_b = this.part) === null || _b === void 0 ? void 0 : _b.update(this._params.params);
+diff --git a/node_modules/dockview-core/dist/cjs/gridview/basePanelView.js b/node_modules/dockview-core/dist/cjs/gridview/basePanelView.js
+index 5c5dbd8..f7ad8a1 100644
+--- a/node_modules/dockview-core/dist/cjs/gridview/basePanelView.js
++++ b/node_modules/dockview-core/dist/cjs/gridview/basePanelView.js
+@@ -143,1 +143,1 @@
+-        (_c = this.part) === null || _c === void 0 ? void 0 : _c.update({ params: this._params.params });
++        (_c = this.part) === null || _c === void 0 ? void 0 : _c.update(this._params.params);

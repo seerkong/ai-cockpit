@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan>
+  <metadata>
+    <track_id>refactor-multi-workspace-session-dashboard</track_id>
+    <track_name>多 Workspace 会话工作台重构</track_name>
+    <goal>实现无 sessionId 详情路由、多 workspace 快速切换、连接实例池与 session 绑定并发执行</goal>
+    <created_at>2026-02-08T19:09:05Z</created_at>
+    <updated_at>2026-02-10T14:54:00Z</updated_at>
+    <status>done</status>
+    <commit_mode>manual</commit_mode>
+  </metadata>
+
+  <phases>
+    <phase id="P1" name="信息架构与路由重构">
+      <goal>完成详情页路由去 sessionId 并保持兼容迁移</goal>
+      <estimated_days>2</estimated_days>
+      <tasks>
+        <task id="T1.1" name="设计并实现新旧路由共存" status="DONE" priority="P0" estimated_days="1">
+          引入 `/workspaces/:workspaceId/sessions` 新路由，保留旧路由入口并在初始化后规范化跳转到新路由。
+          <acceptance_criteria>
+            <criterion id="T1.1-AC1" checked="true">新路由可在无 sessionId 下进入详情页</criterion>
+            <criterion id="T1.1-AC2" checked="true">旧路由可兼容访问并被 replace 到新路由</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.1.1" name="编写路由兼容测试（红）" status="DONE" estimated_hours="2"/>
+            <subtask id="T1.1.2" name="实现路由兼容与规范化（绿）" status="DONE" estimated_hours="4"/>
+            <subtask id="T1.1.3" name="重构路由守卫与导航逻辑" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+
+        <task id="T1.2" name="实现会话恢复策略" status="DONE" priority="P0" estimated_days="1">
+          在无 sessionId 路由下实现“恢复上次会话，失败回退最新会话”初始化策略。
+          <dependencies>T1.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T1.2-AC1" checked="true">刷新后可恢复上次会话</criterion>
+            <criterion id="T1.2-AC2" checked="true">上次会话无效时自动回退最新会话</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.2.1" name="编写会话恢复测试（红）" status="DONE" estimated_hours="2"/>
+            <subtask id="T1.2.2" name="实现恢复与回退策略（绿）" status="DONE" estimated_hours="4"/>
+            <subtask id="T1.2.3" name="重构状态持久化键与读取流程" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+      </tasks>
+      <gate_criteria>
+        <criterion>旧路由兼容与新路由规范化验证通过</criterion>
+        <criterion>会话恢复策略测试全部通过</criterion>
+      </gate_criteria>
+    </phase>
+
+    <phase id="P2" name="连接实例池与绑定模型">
+      <goal>建立 workspace 连接实例（conn-n）与 session 绑定能力</goal>
+      <estimated_days>3</estimated_days>
+      <tasks>
+        <task id="T2.1" name="定义连接实例与绑定数据模型" status="DONE" priority="P0" estimated_days="1">
+          扩展前后端数据模型，支持 workspace 连接实例池、空闲/忙碌状态和 session 绑定关系。
+          <dependencies>T1.2</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.1-AC1" checked="true">支持 conn-1/conn-2 标识化实例</criterion>
+            <criterion id="T2.1-AC2" checked="true">session 可记录 boundConnectionId</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.1.1" name="编写数据模型与映射测试（红）" status="DONE" estimated_hours="3"/>
+            <subtask id="T2.1.2" name="实现数据模型扩展（绿）" status="DONE" estimated_hours="4"/>
+            <subtask id="T2.1.3" name="重构序列化与状态同步" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.2" name="实现连接实例生命周期 API" status="DONE" priority="P0" estimated_days="1">
+          新增/扩展连接、断开、列举实例能力，覆盖 spawn 与 port 两种创建方式。
+          <dependencies>T2.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.2-AC1" checked="true">可创建多个连接实例并分配编号</criterion>
+            <criterion id="T2.2-AC2" checked="true">可按实例断开并回收资源</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.2.1" name="编写连接实例 API 测试（红）" status="DONE" estimated_hours="3"/>
+            <subtask id="T2.2.2" name="实现连接实例 API（绿）" status="DONE" estimated_hours="5"/>
+            <subtask id="T2.2.3" name="重构错误码与返回结构" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.3" name="实现 session 与连接绑定约束" status="DONE" priority="P0" estimated_days="1">
+          实现 session 绑定/解绑连接，未绑定连接时阻止执行动作。
+          <dependencies>T2.2</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.3-AC1" checked="true">session 可绑定空闲连接并显示绑定关系</criterion>
+            <criterion id="T2.3-AC2" checked="true">未绑定时 prompt/shell/command 被阻止并返回提示</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.3.1" name="编写绑定约束测试（红）" status="DONE" estimated_hours="3"/>
+            <subtask id="T2.3.2" name="实现绑定/解绑与执行前校验（绿）" status="DONE" estimated_hours="5"/>
+            <subtask id="T2.3.3" name="重构错误提示与兜底路径" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+      </tasks>
+      <gate_criteria>
+        <criterion>连接实例池 API 与 session 绑定校验测试通过</criterion>
+        <criterion>连接断开回收无资源泄漏</criterion>
+      </gate_criteria>
+    </phase>
+
+    <phase id="P3" name="详情页体验重构">
+      <goal>完成 workspace 快速切换、状态展示与右键交互</goal>
+      <estimated_days>3</estimated_days>
+      <tasks>
+        <task id="T3.1" name="重构详情页布局与导航" status="DONE" priority="P0" estimated_days="1">
+          在详情页新增 workspace 列表区与顶部 path 展示，采用单焦点 workspace + 快速切换模型。
+          <dependencies>T1.2</dependencies>
+          <acceptance_criteria>
+            <criterion id="T3.1-AC1" checked="true">详情页可见 workspace 列表且支持切换焦点</criterion>
+            <criterion id="T3.1-AC2" checked="true">顶部实时显示当前焦点 workspace path</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.1.1" name="编写布局与导航测试（红）" status="TODO" estimated_hours="2"/>
+            <subtask id="T3.1.2" name="实现三栏布局与切换交互（绿）" status="DONE" estimated_hours="5"/>
+            <subtask id="T3.1.3" name="重构样式与响应式细节" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+
+        <task id="T3.2" name="实现 session 主状态聚合" status="DONE" priority="P0" estimated_days="1">
+          聚合 permission/question/session status 信号，按优先级输出单主状态标签。
+          <dependencies>T2.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T3.2-AC1" checked="true">状态优先级规则正确：审批&gt;问题&gt;running&gt;retry&gt;error&gt;idle</criterion>
+            <criterion id="T3.2-AC2" checked="true">session 列表稳定显示单主状态</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.2.1" name="编写状态聚合函数测试（红）" status="DONE" estimated_hours="2"/>
+            <subtask id="T3.2.2" name="实现聚合器与标签渲染（绿）" status="DONE" estimated_hours="4"/>
+            <subtask id="T3.2.3" name="重构状态映射与文案" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+
+        <task id="T3.3" name="实现 workspace/session 右键菜单" status="DONE" priority="P1" estimated_days="1">
+          workspace 项右键提供连接/断开；session 项右键提供绑定空闲连接与解绑。
+          <dependencies>T2.3,T3.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T3.3-AC1" checked="true">workspace 右键可执行连接新进程/连接已有服务/断开</criterion>
+            <criterion id="T3.3-AC2" checked="true">session 右键可绑定空闲连接并可解除绑定</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.3.1" name="编写菜单交互测试（红）" status="DONE" estimated_hours="2"/>
+            <subtask id="T3.3.2" name="实现菜单与动作派发（绿）" status="DONE" estimated_hours="4"/>
+            <subtask id="T3.3.3" name="重构菜单权限与禁用态" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+      </tasks>
+      <gate_criteria>
+        <criterion>详情页主流程交互可用且无阻塞错误</criterion>
+        <criterion>状态展示与右键菜单行为均有自动化测试</criterion>
+      </gate_criteria>
+    </phase>
+
+    <phase id="P4" name="根页面配置管理改造">
+      <goal>根页面仅承担 workspace path 配置和测试连接</goal>
+      <estimated_days>1</estimated_days>
+      <tasks>
+        <task id="T4.1" name="根页面改造为 path CRUD" status="DONE" priority="P1" estimated_days="0.5">
+          根页面提供 workspace path 增删改查与“打开详情”，移除 disconnect。
+          <dependencies>T3.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T4.1-AC1" checked="true">可完成 workspace path CRUD</criterion>
+            <criterion id="T4.1-AC2" checked="true">页面不再提供 disconnect 操作</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.1.1" name="编写根页面 CRUD 测试（红）" status="TODO" estimated_hours="2"/>
+            <subtask id="T4.1.2" name="实现 CRUD 与跳转详情（绿）" status="DONE" estimated_hours="3"/>
+            <subtask id="T4.1.3" name="重构表单与校验" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.2" name="实现测试连接能力" status="DONE" priority="P1" estimated_days="0.5">
+          根页面支持测试连接可达性（spawn/port），但不创建持久连接实例。
+          <dependencies>T2.2</dependencies>
+          <acceptance_criteria>
+            <criterion id="T4.2-AC1" checked="true">可返回连接可达/不可达结果</criterion>
+            <criterion id="T4.2-AC2" checked="true">测试连接不改变运行时连接池状态</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.2.1" name="编写测试连接接口测试（红）" status="DONE" estimated_hours="1"/>
+            <subtask id="T4.2.2" name="实现测试连接流程（绿）" status="DONE" estimated_hours="2"/>
+            <subtask id="T4.2.3" name="重构错误反馈文案" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+      </tasks>
+      <gate_criteria>
+        <criterion>根页面职责符合“配置管理”边界</criterion>
+        <criterion>测试连接能力稳定且无副作用</criterion>
+      </gate_criteria>
+    </phase>
+
+    <phase id="P5" name="并发与回归验证">
+      <goal>验证多 session 并发、绑定约束和兼容迁移完整性</goal>
+      <estimated_days>2</estimated_days>
+      <tasks>
+        <task id="T5.1" name="并发执行回归" status="DONE" priority="P0" estimated_days="1">
+          验证同 workspace 下多个 session 绑定不同连接实例可并发运行，且输出隔离。
+          <dependencies>T2.3,T3.3</dependencies>
+          <acceptance_criteria>
+            <criterion id="T5.1-AC1" checked="true">两个 session 可并发运行并各自完成</criterion>
+            <criterion id="T5.1-AC2" checked="true">输出与状态不串扰</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T5.1.1" name="编写并发 E2E 用例（红）" status="DONE" estimated_hours="3"/>
+            <subtask id="T5.1.2" name="修复并发链路缺陷（绿）" status="DONE" estimated_hours="4"/>
+            <subtask id="T5.1.3" name="重构并发日志与可观测字段" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+
+        <task id="T5.2" name="兼容迁移与全量回归" status="DONE" priority="P0" estimated_days="1">
+          验证旧路由迁移、新详情路由、状态标签、连接菜单与根页改造的端到端回归。
+          <dependencies>T4.2</dependencies>
+          <acceptance_criteria>
+            <criterion id="T5.2-AC1" checked="true">旧路由迁移到新路由行为正确</criterion>
+            <criterion id="T5.2-AC2" checked="true">关键路径自动化测试全部通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T5.2.1" name="编写兼容迁移 E2E 用例（红）" status="DONE" estimated_hours="2"/>
+            <subtask id="T5.2.2" name="修复回归问题并跑全量测试（绿）" status="DONE" estimated_hours="4"/>
+            <subtask id="T5.2.3" name="整理验收报告与风险清单" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+      </tasks>
+      <gate_criteria>
+        <criterion>所有 P0 任务完成且测试通过</criterion>
+        <criterion>核心链路覆盖率满足项目阈值</criterion>
+      </gate_criteria>
+    </phase>
+  </phases>
+
+  <validations>
+    <validation id="V1" name="无 sessionId 详情路由验证" status="PASSED">
+      验证详情页路由不含 sessionId 时的可用性与刷新恢复行为。
+      <checks>
+        <check name="新路由可直达">访问新路由后可正确展示会话详情</check>
+        <check name="恢复策略生效">刷新后恢复上次会话，不可用时回退最新</check>
+      </checks>
+    </validation>
+
+    <validation id="V2" name="连接实例与绑定验证" status="PASSED">
+      验证连接实例池创建/断开、session 绑定/解绑与执行前强校验。
+      <checks>
+        <check name="连接实例编号">可见 conn-1、conn-2 等实例标识</check>
+        <check name="绑定强约束">未绑定 session 执行请求被阻止</check>
+      </checks>
+    </validation>
+
+    <validation id="V3" name="状态优先级展示验证" status="PASSED">
+      验证 session 主状态按优先级正确渲染。
+      <checks>
+        <check name="优先级规则">审批&gt;问题&gt;running&gt;retry&gt;error&gt;idle</check>
+        <check name="列表一致性">列表始终显示单主状态标签</check>
+      </checks>
+    </validation>
+
+    <validation id="V4" name="根页面职责验证" status="PASSED">
+      验证根页面仅做配置管理与测试连接。
+      <checks>
+        <check name="CRUD 完整">workspace path 可增删改查</check>
+        <check name="无 disconnect">根页面不出现 disconnect 操作</check>
+      </checks>
+    </validation>
+  </validations>
+
+  <summary>
+    <total_phases>5</total_phases>
+    <total_tasks>12</total_tasks>
+    <total_subtasks>36</total_subtasks>
+    <total_estimated_days>11</total_estimated_days>
+    <completed>12</completed>
+    <in_progress>0</in_progress>
+    <todo>0</todo>
+    <blocked>0</blocked>
+    <by_priority>
+      <p0 count="8" days="8"/>
+      <p1 count="4" days="3"/>
+      <p2 count="0" days="0"/>
+    </by_priority>
+  </summary>
+</plan>

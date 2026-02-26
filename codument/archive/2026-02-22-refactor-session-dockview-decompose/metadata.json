@@ -1,0 +1,9 @@
+{
+  "track_id": "refactor-session-dockview-decompose",
+  "type": "refactor",
+  "status": "completed",
+  "commit_mode": "manual",
+  "created_at": "2026-02-21T12:00:00Z",
+  "updated_at": "2026-02-22T00:00:00Z",
+  "description": "将 SessionDockview.vue 2280 行单体文件按职责拆分为 Vue composables，通用面板 wrapper 工厂简化 Options API 代码，并通过 dynamic import 懒加载优化 1.2MB chunk size"
+}

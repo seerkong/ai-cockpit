@@ -1,0 +1,9 @@
+{
+  "track_id": "refactor-backend-to-elysia",
+  "type": "refactor",
+  "status": "in_progress",
+  "commit_mode": "manual",
+  "created_at": "2026-02-23T17:56:24Z",
+  "updated_at": "2026-02-23T18:50:44Z",
+  "description": "将当前项目后端从 Bun 内置 serve 改造为基于 Elysia，并备份原 serve 文件以便后续功能对照与回归核验。"
+}

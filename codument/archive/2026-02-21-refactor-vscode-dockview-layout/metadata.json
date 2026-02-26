@@ -1,0 +1,9 @@
+{
+  "track_id": "refactor-vscode-dockview-layout",
+  "type": "feature",
+  "status": "new",
+  "commit_mode": "auto",
+  "created_at": "2026-02-10T14:55:00Z",
+  "updated_at": "2026-02-21T11:35:00Z",
+  "description": "将前端重构为 VSCode 风格布局，使用 dockview 实现可拖拽面板系统，包含活动栏、侧边栏、编辑区、底部面板和状态栏"
+}

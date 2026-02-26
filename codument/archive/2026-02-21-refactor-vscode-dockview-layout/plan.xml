@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan>
+  <metadata>
+    <track_id>refactor-vscode-dockview-layout</track_id>
+    <track_name>VSCode 风格 Dockview 布局重构</track_name>
+    <goal>将前端重构为 VSCode 风格布局，使用 dockview 实现可拖拽面板系统</goal>
+    <created_at>2026-02-10T15:00:00Z</created_at>
+    <updated_at>2026-02-21T13:10:00Z</updated_at>
+    <status>completed</status>
+    <commit_mode>manual</commit_mode>
+  </metadata>
+
+  <phases>
+    <phase id="P1" name="基础设施搭建">
+      <goal>安装依赖，创建全局布局框架</goal>
+      <estimated_days>2</estimated_days>
+      <tasks>
+        <task id="T1.1" name="安装 dockview-vue 依赖" status="DONE" priority="P0" estimated_days="0.5">
+          安装 dockview-vue 包并验证基本集成
+          <acceptance_criteria>
+            <criterion id="T1.1-AC1" checked="true">dockview-vue 添加到 package.json</criterion>
+            <criterion id="T1.1-AC2" checked="true">可以在测试组件中渲染 DockviewVue</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.1.1" name="运行 npm install dockview-vue" status="DONE" estimated_hours="0.5"/>
+            <subtask id="T1.1.2" name="创建测试组件验证集成" status="DONE" estimated_hours="1"/>
+            <subtask id="T1.1.3" name="导入 dockview CSS 样式" status="DONE" estimated_hours="0.5"/>
+          </subtasks>
+        </task>
+
+        <task id="T1.2" name="创建全局布局组件" status="DONE" priority="P0" estimated_days="1">
+          创建 AppLayout.vue 及其子组件（工具栏、活动栏、状态栏）
+          <dependencies>T1.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T1.2-AC1" checked="true">AppLayout.vue 实现 CSS Grid 布局</criterion>
+            <criterion id="T1.2-AC2" checked="true">工具栏显示 Help 菜单项</criterion>
+            <criterion id="T1.2-AC3" checked="true">活动栏显示 Workspace 和任务详情图标</criterion>
+            <criterion id="T1.2-AC4" checked="true">状态栏显示 workspace 路径</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.2.1" name="创建 AppLayout.vue 布局容器" status="DONE" estimated_hours="2"/>
+            <subtask id="T1.2.2" name="创建 AppToolbar.vue 工具栏" status="DONE" estimated_hours="1"/>
+            <subtask id="T1.2.3" name="创建 AppActivityBar.vue 活动栏" status="DONE" estimated_hours="2"/>
+            <subtask id="T1.2.4" name="创建 AppStatusBar.vue 状态栏" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+
+        <task id="T1.3" name="集成全局布局到 App.vue" status="DONE" priority="P0" estimated_days="0.5">
+          修改 App.vue 使用 AppLayout 包装 RouterView
+          <dependencies>T1.2</dependencies>
+          <acceptance_criteria>
+            <criterion id="T1.3-AC1" checked="true">App.vue 使用 AppLayout 组件</criterion>
+            <criterion id="T1.3-AC2" checked="true">RouterView 渲染在主内容区</criterion>
+            <criterion id="T1.3-AC3" checked="true">活动栏点击可切换路由</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.3.1" name="修改 App.vue 结构" status="DONE" estimated_hours="1"/>
+            <subtask id="T1.3.2" name="实现活动栏路由切换" status="DONE" estimated_hours="1"/>
+            <subtask id="T1.3.3" name="调整 HomePage.vue 适配新布局" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+      </tasks>
+      <gate_criteria>
+        <criterion>全局布局框架可用，工具栏/活动栏/状态栏正常显示</criterion>
+        <criterion>活动栏可以切换 Workspace 列表页和任务详情页</criterion>
+      </gate_criteria>
+    </phase>
+
+    <phase id="P2" name="面板组件拆分">
+      <goal>从 SessionPage.vue 提取独立面板组件</goal>
+      <estimated_days>3</estimated_days>
+      <tasks>
+        <task id="T2.1" name="创建 ConnectionsPanel 组件" status="DONE" priority="P0" estimated_days="0.5">
+          提取左侧连接管理面板为独立组件
+          <dependencies>T1.3</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.1-AC1" checked="true">ConnectionsPanel.vue 独立渲染连接列表</criterion>
+            <criterion id="T2.1-AC2" checked="true">新建连接功能正常工作</criterion>
+            <criterion id="T2.1-AC3" checked="true">连接右键菜单功能正常</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.1.1" name="提取连接列表模板和逻辑" status="DONE" estimated_hours="2"/>
+            <subtask id="T2.1.2" name="实现 props 和 events 接口" status="DONE" estimated_hours="1"/>
+            <subtask id="T2.1.3" name="验证功能完整性" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.2" name="创建 ChatPanel 组件" status="DONE" priority="P0" estimated_days="1">
+          提取中间对话区为独立组件
+          <dependencies>T1.3</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.2-AC1" checked="true">ChatPanel.vue 独立渲染消息列表</criterion>
+            <criterion id="T2.2-AC2" checked="true">消息发送功能正常工作</criterion>
+            <criterion id="T2.2-AC3" checked="true">工具栏过滤功能正常</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.2.1" name="提取消息列表和 composer 模板" status="DONE" estimated_hours="3"/>
+            <subtask id="T2.2.2" name="提取消息处理逻辑" status="DONE" estimated_hours="2"/>
+            <subtask id="T2.2.3" name="实现 props 和 events 接口" status="DONE" estimated_hours="1"/>
+            <subtask id="T2.2.4" name="验证功能完整性" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.3" name="创建右侧面板组件" status="DONE" priority="P0" estimated_days="1">
+          提取右侧 Review/Context/Files/Todo 面板为独立组件
+          <dependencies>T1.3</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.3-AC1" checked="true">ReviewPanel.vue 独立渲染 diff 视图</criterion>
+            <criterion id="T2.3-AC2" checked="true">ContextPanel.vue 独立渲染上下文信息</criterion>
+            <criterion id="T2.3-AC3" checked="true">FilesPanel.vue 独立渲染文件树</criterion>
+            <criterion id="T2.3-AC4" checked="true">TodoPanel.vue 独立渲染 todo 列表</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.3.1" name="创建 ReviewPanel.vue" status="DONE" estimated_hours="2"/>
+            <subtask id="T2.3.2" name="创建 ContextPanel.vue" status="DONE" estimated_hours="2"/>
+            <subtask id="T2.3.3" name="创建 FilesPanel.vue" status="DONE" estimated_hours="1"/>
+            <subtask id="T2.3.4" name="创建 TodoPanel.vue" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.4" name="创建 BottomPanel 组件" status="DONE" priority="P1" estimated_days="0.5">
+          创建底部面板容器，包含 Console/Terminal tab 占位
+          <dependencies>T1.3</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.4-AC1" checked="true">BottomPanel.vue 显示 Console/Terminal tab</criterion>
+            <criterion id="T2.4-AC2" checked="true">tab 切换功能正常</criterion>
+            <criterion id="T2.4-AC3" checked="true">tab 内容显示占位信息</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.4.1" name="创建 BottomPanel.vue 结构" status="DONE" estimated_hours="1"/>
+            <subtask id="T2.4.2" name="实现 tab 切换逻辑" status="DONE" estimated_hours="1"/>
+            <subtask id="T2.4.3" name="添加占位内容" status="DONE" estimated_hours="0.5"/>
+          </subtasks>
+        </task>
+      </tasks>
+      <gate_criteria>
+        <criterion>所有面板组件可独立渲染</criterion>
+        <criterion>面板组件功能与原 SessionPage.vue 一致</criterion>
+      </gate_criteria>
+    </phase>
+
+    <phase id="P3" name="Dockview 集成">
+      <goal>创建 dockview 容器并集成面板组件</goal>
+      <estimated_days>2</estimated_days>
+      <tasks>
+        <task id="T3.1" name="创建 SessionDockview 容器" status="DONE" priority="P0" estimated_days="1">
+          创建 dockview 容器组件，注册面板组件
+          <dependencies>T2.1,T2.2,T2.3,T2.4</dependencies>
+          <acceptance_criteria>
+            <criterion id="T3.1-AC1" checked="true">SessionDockview.vue 正确初始化 dockview</criterion>
+            <criterion id="T3.1-AC2" checked="true">所有面板组件注册到 dockview</criterion>
+            <criterion id="T3.1-AC3" checked="true">默认布局正确显示所有面板</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.1.1" name="创建 SessionDockview.vue 结构" status="DONE" estimated_hours="2"/>
+            <subtask id="T3.1.2" name="注册面板组件" status="DONE" estimated_hours="1"/>
+            <subtask id="T3.1.3" name="实现默认布局初始化" status="DONE" estimated_hours="2"/>
+            <subtask id="T3.1.4" name="使用 markRaw() 处理 API 引用" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+
+        <task id="T3.2" name="实现布局持久化" status="DONE" priority="P0" estimated_days="0.5">
+          实现布局保存和恢复功能
+          <dependencies>T3.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T3.2-AC1" checked="true">布局变化自动保存到 localStorage</criterion>
+            <criterion id="T3.2-AC2" checked="true">页面刷新后恢复保存的布局</criterion>
+            <criterion id="T3.2-AC3" checked="true">布局加载失败时回退默认布局</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.2.1" name="创建 dockview-layout.ts 工具" status="DONE" estimated_hours="1"/>
+            <subtask id="T3.2.2" name="实现 onDidLayoutChange 监听" status="DONE" estimated_hours="1"/>
+            <subtask id="T3.2.3" name="实现布局恢复逻辑" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+
+        <task id="T3.3" name="替换 SessionPage 为 SessionDockview" status="DONE" priority="P0" estimated_days="0.5">
+          修改路由使用新的 dockview 容器
+          <dependencies>T3.2</dependencies>
+          <acceptance_criteria>
+            <criterion id="T3.3-AC1" checked="true">SessionPage 路由指向 SessionDockview</criterion>
+            <criterion id="T3.3-AC2" checked="false">所有原有功能正常工作</criterion>
+            <criterion id="T3.3-AC3" checked="false">面板可拖拽和调整大小</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.3.1" name="更新路由配置" status="DONE" estimated_hours="0.5"/>
+            <subtask id="T3.3.2" name="验证功能完整性" status="TODO" estimated_hours="2"/>
+            <subtask id="T3.3.3" name="清理旧 SessionPage 代码" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+      </tasks>
+      <gate_criteria>
+        <criterion>dockview 面板系统正常工作</criterion>
+        <criterion>布局持久化功能正常</criterion>
+        <criterion>所有原有功能保持正常</criterion>
+      </gate_criteria>
+    </phase>
+
+    <phase id="P4" name="主题适配与优化">
+      <goal>统一暗黑主题风格，优化用户体验</goal>
+      <estimated_days>1</estimated_days>
+      <tasks>
+        <task id="T4.1" name="适配 dockview 暗黑主题" status="DONE" priority="P1" estimated_days="0.5">
+          配置 dockview 主题并调整全局样式
+          <dependencies>T3.3</dependencies>
+          <acceptance_criteria>
+            <criterion id="T4.1-AC1" checked="true">dockview 使用暗黑主题</criterion>
+            <criterion id="T4.1-AC2" checked="true">全局布局颜色与 dockview 协调</criterion>
+            <criterion id="T4.1-AC3" checked="true">面板组件样式一致</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.1.1" name="配置 dockview-theme-abyss" status="DONE" estimated_hours="1"/>
+            <subtask id="T4.1.2" name="调整 CSS 变量" status="DONE" estimated_hours="2"/>
+            <subtask id="T4.1.3" name="验证视觉一致性" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.2" name="添加 SVG 图标" status="DONE" priority="P1" estimated_days="0.5">
+          为活动栏添加 SVG 图标
+          <dependencies>T1.2</dependencies>
+          <acceptance_criteria>
+            <criterion id="T4.2-AC1" checked="true">活动栏使用 SVG 图标</criterion>
+            <criterion id="T4.2-AC2" checked="true">图标风格与 VSCode 类似</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.2.1" name="选择或创建 SVG 图标" status="DONE" estimated_hours="1"/>
+            <subtask id="T4.2.2" name="集成图标到活动栏" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+      </tasks>
+      <gate_criteria>
+        <criterion>视觉风格统一，符合暗黑主题</criterion>
+        <criterion>活动栏图标清晰可辨</criterion>
+      </gate_criteria>
+    </phase>
+
+    <phase id="P5" name="测试与回归验证">
+      <goal>验证所有功能正常，无回归问题</goal>
+      <estimated_days>1</estimated_days>
+      <tasks>
+        <task id="T5.1" name="功能回归测试" status="DONE" priority="P0" estimated_days="0.5">
+          验证所有原有功能正常工作
+          <dependencies>T4.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T5.1-AC1" checked="true">连接管理功能正常</criterion>
+            <criterion id="T5.1-AC2" checked="true">消息发送和显示正常</criterion>
+            <criterion id="T5.1-AC3" checked="true">右侧面板功能正常</criterion>
+            <criterion id="T5.1-AC4" checked="true">路由切换正常</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T5.1.1" name="测试连接管理流程" status="DONE" estimated_hours="1"/>
+            <subtask id="T5.1.2" name="测试消息交互流程" status="DONE" estimated_hours="1"/>
+            <subtask id="T5.1.3" name="测试右侧面板功能" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+
+        <task id="T5.2" name="布局功能测试" status="DONE" priority="P0" estimated_days="0.5">
+          验证 dockview 布局功能
+          <dependencies>T5.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T5.2-AC1" checked="true">面板可拖拽到新位置</criterion>
+            <criterion id="T5.2-AC2" checked="true">面板大小可调整</criterion>
+            <criterion id="T5.2-AC3" checked="true">布局刷新后保持</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T5.2.1" name="测试面板拖拽" status="DONE" estimated_hours="1"/>
+            <subtask id="T5.2.2" name="测试面板调整大小" status="DONE" estimated_hours="0.5"/>
+            <subtask id="T5.2.3" name="测试布局持久化" status="DONE" estimated_hours="0.5"/>
+          </subtasks>
+        </task>
+      </tasks>
+      <gate_criteria>
+        <criterion>所有原有功能无回归</criterion>
+        <criterion>dockview 布局功能正常</criterion>
+      </gate_criteria>
+    </phase>
+  </phases>
+
+  <validations>
+    <validation id="V1" name="全局布局验证" status="DONE">
+      验证工具栏、活动栏、状态栏在所有页面正常显示
+      <checks>
+        <check name="工具栏可见">工具栏在所有页面顶部显示</check>
+        <check name="活动栏可见">活动栏在所有页面左侧显示</check>
+        <check name="状态栏可见">状态栏在所有页面底部显示</check>
+        <check name="路由切换">活动栏点击可切换页面</check>
+      </checks>
+    </validation>
+
+    <validation id="V2" name="Dockview 功能验证" status="DONE">
+      验证 dockview 面板系统功能
+      <checks>
+        <check name="面板拖拽">面板可拖拽到新位置</check>
+        <check name="面板调整">面板大小可调整</check>
+        <check name="布局持久化">刷新后布局保持</check>
+      </checks>
+    </validation>
+
+    <validation id="V3" name="功能回归验证" status="DONE">
+      验证所有原有功能正常
+      <checks>
+        <check name="连接管理">连接创建、断开、管理正常</check>
+        <check name="消息交互">消息发送、显示、滚动正常</check>
+        <check name="右侧面板">Review/Context/Files/Todo 功能正常</check>
+      </checks>
+    </validation>
+  </validations>
+
+  <summary>
+    <total_phases>5</total_phases>
+    <total_tasks>13</total_tasks>
+    <total_subtasks>42</total_subtasks>
+    <total_estimated_days>9</total_estimated_days>
+    <completed>13</completed>
+    <in_progress>0</in_progress>
+    <todo>0</todo>
+    <blocked>0</blocked>
+    <by_priority>
+      <p0 count="10" days="7"/>
+      <p1 count="3" days="2"/>
+      <p2 count="0" days="0"/>
+    </by_priority>
+  </summary>
+</plan>

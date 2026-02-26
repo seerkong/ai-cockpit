@@ -1,0 +1,9 @@
+{
+  "track_id": "update-work-ui-ux-opencode-parity",
+  "type": "feature",
+  "status": "in_progress",
+  "commit_mode": "auto",
+  "created_at": "2026-02-22T15:30:00Z",
+  "updated_at": "2026-02-26T10:01:09Z",
+  "description": "/work 页面 UI/UX 体验优化：连接状态分栏、底部面板收起、Chat 工具栏紧凑化、输入框 slash-command/文件附加、Model 选择弹窗、问题确认 Dock 浮层、消息时间戳与耗时、上下文占用显示、右侧 Tab 重排等，对齐 opencode web 交互"
+}

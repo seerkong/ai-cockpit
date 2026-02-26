@@ -1,0 +1,442 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan>
+  <metadata>
+    <track_id>update-work-ui-ux-opencode-parity</track_id>
+    <track_name>/work UI/UX 体验优化与 opencode Web 交互对齐</track_name>
+    <goal>对齐 opencode web 交互体验，优化连接分栏、输入框、工具栏、确认浮层、消息展示等 12 项 UI/UX 改进</goal>
+    <created_at>2026-02-22</created_at>
+    <status>in_progress</status>
+    <commit_mode>manual</commit_mode>
+    <references>
+      <ref type="api-doc" path="codument/tracks/update-work-ui-ux-opencode-parity/opencode-api-reference.md"/>
+      <ref type="external-doc" url="https://open-code.ai/zh/docs/server"/>
+      <ref type="source-ref" path="E:\ai-dev\src\opencode\packages\app\src\pages\session\"/>
+    </references>
+  </metadata>
+
+  <progress>
+    <completed>24</completed>
+    <in_progress>0</in_progress>
+    <todo>1</todo>
+  </progress>
+
+  <phases>
+    <!-- ==================== P1: 布局与面板基础 ==================== -->
+    <phase id="P1" name="布局与面板基础改造">
+      <goal>完成右侧 Tab 重排、底部面板 Toggle、Chat Tab 标题动态化、状态栏骨架</goal>
+
+      <tasks>
+        <task id="T1.1" name="右侧面板 Tab 重排" status="DONE" priority="P0">
+          修改 useDockviewLayout.ts 的 createDefaultLayout()，将右侧 Tab 顺序改为 Todo → Context → Review → Files
+          <acceptance_criteria>
+            <criterion id="T1.1-AC1" checked="true">右侧 Tab 顺序为 Todo、Context、Review、Files</criterion>
+            <criterion id="T1.1-AC2" checked="true">bun test 通过</criterion>
+            <criterion id="T1.1-AC3" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.1.1" name="修改 createDefaultLayout addPanel 顺序" status="DONE"/>
+            <subtask id="T1.1.2" name="更新 useDockviewLayout.test.ts 验证顺序" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T1.2" name="底部面板 Toggle 展开/收起" status="DONE" priority="P0">
+          在 useDockviewLayout 中新增 toggleBottomPanel 方法，在 BottomPanel 标题栏添加 Toggle 按钮
+          <acceptance_criteria>
+            <criterion id="T1.2-AC1" checked="true">底部面板标题栏有 Toggle 按钮</criterion>
+            <criterion id="T1.2-AC2" checked="true">点击 Toggle 可收起/展开底部面板</criterion>
+            <criterion id="T1.2-AC3" checked="true">展开时恢复上次高度</criterion>
+            <criterion id="T1.2-AC4" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.2.1" name="useDockviewLayout 新增 toggleBottomPanel" status="DONE"/>
+            <subtask id="T1.2.2" name="BottomPanel.vue 添加 Toggle 按钮 UI" status="DONE"/>
+            <subtask id="T1.2.3" name="provide/inject toggle 函数到 panel wrapper" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T1.3" name="对话标题栏与更多操作菜单" status="DONE" priority="P1">
+          Chat Tab 保持 "Chat" 不变，在 ChatPanel 对话区域顶部新增独占一行的会话标题栏，右侧有"更多"按钮弹出操作菜单（Fork/Share/Summarize/Revert 等）
+          <acceptance_criteria>
+            <criterion id="T1.3-AC1" checked="true">对话区域顶部显示会话标题行</criterion>
+            <criterion id="T1.3-AC2" checked="true">标题过长时截断并 hover 显示 tooltip</criterion>
+            <criterion id="T1.3-AC3" checked="true">右侧"更多"按钮点击弹出操作菜单</criterion>
+            <criterion id="T1.3-AC4" checked="true">无会话时显示占位或隐藏</criterion>
+            <criterion id="T1.3-AC5" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.3.1" name="provide session title ref" status="DONE"/>
+            <subtask id="T1.3.2" name="ChatPanel 新增标题栏组件（标题+更多按钮）" status="DONE"/>
+            <subtask id="T1.3.3" name="将 Fork/Share 等操作从工具栏迁移到更多菜单" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T1.4" name="底部状态栏骨架" status="DONE" priority="P1">
+          新增 SessionStatusBar.vue 组件，挂载到 /work 页面底部，初始显示占位内容
+          <acceptance_criteria>
+            <criterion id="T1.4-AC1" checked="true">状态栏组件存在并渲染在页面底部</criterion>
+            <criterion id="T1.4-AC2" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.4.1" name="创建 SessionStatusBar.vue 骨架" status="DONE"/>
+            <subtask id="T1.4.2" name="在 SessionDockview.vue 中挂载状态栏" status="DONE"/>
+          </subtasks>
+        </task>
+      </tasks>
+    </phase>
+
+    <!-- ==================== P2: 连接面板重构 ==================== -->
+    <phase id="P2" name="连接面板状态分栏">
+      <goal>实现连接列表按状态分栏、状态标签迁移、进行中处理时间、上下文占用显示</goal>
+
+      <tasks>
+        <task id="T2.1" name="连接列表状态分栏 Splitview" status="DONE" priority="P0">
+          重写 ConnectionsPanel.vue，使用 dockview Splitview 按 Idle/Waiting/Active/Other 分栏
+          <dependencies>T1.4</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.1-AC1" checked="true">连接按状态自动归入对应分栏</criterion>
+            <criterion id="T2.1-AC2" checked="true">分栏标题显示状态名和计数</criterion>
+            <criterion id="T2.1-AC3" checked="true">分栏可独立展开/收起</criterion>
+            <criterion id="T2.1-AC4" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.1.1" name="编写连接状态分类逻辑测试" status="DONE"/>
+            <subtask id="T2.1.2" name="实现状态分类 composable" status="DONE"/>
+            <subtask id="T2.1.3" name="重写 ConnectionsPanel 为 Splitview 布局" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.2" name="状态标签迁移到连接条目" status="DONE" priority="P0">
+          将 session status label 从 Chat 上方移到 ConnectionsPanel 每个连接条目上
+          <dependencies>T2.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.2-AC1" checked="true">每个连接条目显示状态 badge</criterion>
+            <criterion id="T2.2-AC2" checked="true">Chat 上方不再显示独立状态行</criterion>
+            <criterion id="T2.2-AC3" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.2.1" name="ConnectionsPanel 添加 status badge" status="DONE"/>
+            <subtask id="T2.2.2" name="ChatPanel 移除 status 显示行" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.3" name="选中连接切换分栏保持选中" status="DONE" priority="P0">
+          当选中连接的状态变化导致分栏切换时，保持选中状态并自动展开目标分栏
+          <dependencies>T2.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.3-AC1" checked="true">连接状态变化后保持选中</criterion>
+            <criterion id="T2.3-AC2" checked="true">目标分栏自动展开</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.3.1" name="watch 连接状态变化，自动展开目标分栏" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.6" name="Connections 面板改为 VSCode Paneview 风格 + Connection 菜单" status="DONE" priority="P0">
+          将 ConnectionsPanel 从 Splitview 改为 dockview 内置 Paneview（类似 VSCode Debug 侧栏 Variables/Watch/Breakpoints 的纵向可折叠分区）；同时将 New Connection 入口从面板内移到顶部菜单栏的 Connection 下拉菜单。
+          <dependencies>T2.3</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.6-AC1" checked="true">ConnectionsPanel 使用 PaneviewVue（内置 header + chevron 展开/收起）而非自制折叠按钮</criterion>
+            <criterion id="T2.6-AC2" checked="true">ConnectionsPanel 内不再显示 New Connection 按钮</criterion>
+            <criterion id="T2.6-AC3" checked="true">顶部工具栏新增 Connection 菜单，包含 New Connection</criterion>
+            <criterion id="T2.6-AC4" checked="true">点击 Connection → New Connection 会打开现有 New Connection modal</criterion>
+            <criterion id="T2.6-AC5" checked="true">bun run build 通过（frontend）</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.6.1" name="添加全局 New Connection 触发器（toolbar -> SessionDockview）" status="DONE"/>
+            <subtask id="T2.6.2" name="AppToolbar 添加 Connection 下拉菜单" status="DONE"/>
+            <subtask id="T2.6.3" name="ConnectionsPanel 改用 PaneviewVue 并移除自定义折叠" status="DONE"/>
+            <subtask id="T2.6.4" name="移除 ConnectionsPanel 内 New Connection 入口" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.4" name="进行中连接显示处理时间" status="DONE" priority="P1">
+          Active 分栏中每个连接显示 "Processing: Xs" 计时，每 15 秒刷新
+          <dependencies>T2.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.4-AC1" checked="true">Active 连接显示处理时间</criterion>
+            <criterion id="T2.4-AC2" checked="true">每 15 秒刷新</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.4.1" name="记录连接进入 Active 的时间戳" status="DONE"/>
+            <subtask id="T2.4.2" name="渲染计时并定时刷新" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.5" name="上下文占用百分比显示" status="DONE" priority="P1">
+          在底部状态栏显示选中连接的上下文 token 占用百分比
+          <dependencies>T1.4,T2.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T2.5-AC1" checked="true">状态栏显示 Context: XX%</criterion>
+            <criterion id="T2.5-AC2" checked="true">hover tooltip 显示 tokens 详情</criterion>
+            <criterion id="T2.5-AC3" checked="true">无数据时显示 "Context: —"</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.5.1" name="从 assistant 消息提取 tokens 信息" status="DONE"/>
+            <subtask id="T2.5.2" name="获取 model context limit" status="DONE"/>
+            <subtask id="T2.5.3" name="SessionStatusBar 渲染占用百分比" status="DONE"/>
+          </subtasks>
+        </task>
+      </tasks>
+    </phase>
+
+    <!-- ==================== P3: Chat 输入框与工具栏 ==================== -->
+    <phase id="P3" name="Chat 输入框与工具栏优化">
+      <goal>完成工具栏紧凑化、slash command、文件附加、Agent/Model 选择器重构</goal>
+
+      <tasks>
+        <task id="T3.1" name="Chat 工具栏紧凑化" status="DONE" priority="P0">
+          将 Tools/Reasoning/Expand tools 收纳到 Dropdown Menu，默认勾选 Tools 和 Reasoning
+          <acceptance_criteria>
+            <criterion id="T3.1-AC1" checked="true">工具栏右侧有配置图标按钮</criterion>
+            <criterion id="T3.1-AC2" checked="true">点击弹出 Dropdown 含 3 个 checkbox</criterion>
+            <criterion id="T3.1-AC3" checked="true">Tools 和 Reasoning 默认勾选</criterion>
+            <criterion id="T3.1-AC4" checked="true">切换立即影响消息渲染</criterion>
+            <criterion id="T3.1-AC5" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.1.1" name="创建 Dropdown Menu 组件" status="DONE"/>
+            <subtask id="T3.1.2" name="移除原独立 checkbox 行" status="DONE"/>
+            <subtask id="T3.1.3" name="接线 reactive state 到消息渲染" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T3.2" name="Slash Command 弹窗" status="DONE" priority="P0">
+          输入 "/" 后弹出 command 列表，支持搜索过滤和键盘导航
+          <acceptance_criteria>
+            <criterion id="T3.2-AC1" checked="true">输入 "/" 触发弹窗</criterion>
+            <criterion id="T3.2-AC2" checked="true">列表显示 command 名称和描述</criterion>
+            <criterion id="T3.2-AC3" checked="true">继续输入可过滤</criterion>
+            <criterion id="T3.2-AC4" checked="true">↑↓ Enter Esc 键盘导航</criterion>
+            <criterion id="T3.2-AC5" checked="true">选择后填入输入框</criterion>
+            <criterion id="T3.2-AC6" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.2.1" name="编写 SlashCommandPopover 测试" status="DONE"/>
+            <subtask id="T3.2.2" name="实现 SlashCommandPopover.vue" status="DONE"/>
+            <subtask id="T3.2.3" name="集成到 ChatPanel textarea" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T3.3" name="文件附加功能" status="DONE" priority="P0">
+          "+" 按钮弹出文件搜索，支持粘贴图片和拖拽文件
+          <acceptance_criteria>
+            <criterion id="T3.3-AC1" checked="true">"+" 按钮存在并可点击</criterion>
+            <criterion id="T3.3-AC2" checked="true">弹出文件搜索弹窗</criterion>
+            <criterion id="T3.3-AC3" checked="true">粘贴图片自动附加</criterion>
+            <criterion id="T3.3-AC4" checked="true">拖拽文件到输入框可附加</criterion>
+            <criterion id="T3.3-AC5" checked="true">附件预览区显示缩略图</criterion>
+            <criterion id="T3.3-AC6" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.3.1" name="编写 FileAttachPopover 测试" status="DONE"/>
+            <subtask id="T3.3.2" name="实现 FileAttachPopover.vue" status="DONE"/>
+            <subtask id="T3.3.3" name="实现 paste/drop 事件处理" status="DONE"/>
+            <subtask id="T3.3.4" name="集成到 ChatPanel composer" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T3.4" name="Agent/Model 选择器重构" status="DONE" priority="P0">
+          移至输入框下方，Model 改为带搜索的 Popover 弹窗
+          <acceptance_criteria>
+            <criterion id="T3.4-AC1" checked="true">Agent/Model 选择器在输入框下方</criterion>
+            <criterion id="T3.4-AC2" checked="true">Model 点击弹出搜索弹窗</criterion>
+            <criterion id="T3.4-AC3" checked="true">弹窗内按 provider 分组</criterion>
+            <criterion id="T3.4-AC4" checked="true">搜索可实时过滤</criterion>
+            <criterion id="T3.4-AC5" checked="true">保持当前显示名和分组逻辑</criterion>
+            <criterion id="T3.4-AC6" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.4.1" name="编写 ModelSelectorPopover 测试" status="DONE"/>
+            <subtask id="T3.4.2" name="实现 ModelSelectorPopover.vue" status="DONE"/>
+            <subtask id="T3.4.3" name="重构 ChatPanel composer 布局" status="DONE"/>
+          </subtasks>
+        </task>
+      </tasks>
+    </phase>
+
+    <!-- ==================== P4: 确认浮层与消息增强 ==================== -->
+    <phase id="P4" name="确认浮层与消息增强">
+      <goal>实现 Permission/Question Dock 浮层、消息时间戳与耗时显示</goal>
+
+      <tasks>
+        <task id="T4.1" name="Permission Dock 浮层" status="DONE" priority="P0">
+          新增 PermissionDock.vue，在 composer 上方显示权限确认，阻断输入
+          <acceptance_criteria>
+            <criterion id="T4.1-AC1" checked="true">权限请求显示为 Dock 浮层</criterion>
+            <criterion id="T4.1-AC2" checked="true">显示权限类型、标题、pattern</criterion>
+            <criterion id="T4.1-AC3" checked="true">Deny/AllowOnce/AllowAlways 按钮可用</criterion>
+            <criterion id="T4.1-AC4" checked="true">输入框被阻断</criterion>
+            <criterion id="T4.1-AC5" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.1.1" name="编写 PermissionDock 测试" status="DONE"/>
+            <subtask id="T4.1.2" name="实现 PermissionDock.vue" status="DONE"/>
+            <subtask id="T4.1.3" name="集成到 ChatPanel composer 区域" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.2" name="Question Dock 浮层（单问题+多问题分页）" status="DONE" priority="P0">
+          新增 QuestionDock.vue，支持单问题选项/输入和多问题分页导航
+          <dependencies>T4.1</dependencies>
+          <acceptance_criteria>
+            <criterion id="T4.2-AC1" checked="true">单问题显示 radio/checkbox 或文本输入</criterion>
+            <criterion id="T4.2-AC2" checked="true">多问题显示分页导航 + Back/Next/Submit</criterion>
+            <criterion id="T4.2-AC3" checked="true">Reply/Reject 按钮可用</criterion>
+            <criterion id="T4.2-AC4" checked="true">输入框被阻断</criterion>
+            <criterion id="T4.2-AC5" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.2.1" name="编写 QuestionDock 测试" status="DONE"/>
+            <subtask id="T4.2.2" name="实现 QuestionDock.vue" status="DONE"/>
+            <subtask id="T4.2.3" name="集成到 ChatPanel composer 区域" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.3" name="消息时间戳与耗时显示" status="DONE" priority="P0">
+          每条消息显示创建时间，assistant 消息显示 turn 耗时，进行中消息每 15 秒刷新
+          <acceptance_criteria>
+            <criterion id="T4.3-AC1" checked="true">每条消息显示创建时间</criterion>
+            <criterion id="T4.3-AC2" checked="true">已完成 assistant 消息显示 turn 耗时</criterion>
+            <criterion id="T4.3-AC3" checked="true">进行中消息每 15 秒刷新耗时</criterion>
+            <criterion id="T4.3-AC4" checked="true">bun run build 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.3.1" name="编写时间格式化工具函数测试" status="DONE"/>
+            <subtask id="T4.3.2" name="实现时间格式化与 duration 计算" status="DONE"/>
+            <subtask id="T4.3.3" name="修改 ChatPanel 消息渲染区域" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.4" name="Reasoning 展示主题+全文" status="DONE" priority="P0">
+          对话历史中 reasoning 部分应展示主题与完整内容（不只显示标题），并在 UI 中可读
+          <dependencies>T4.3</dependencies>
+          <acceptance_criteria>
+            <criterion id="T4.4-AC1" checked="true">Reasoning 文本按原始换行/段落正确展示（不折叠为单行）</criterion>
+            <criterion id="T4.4-AC2" checked="true">Reasoning 中的 markdown（如加粗/列表/代码）可正常渲染</criterion>
+            <criterion id="T4.4-AC3" checked="true">bun test 通过（frontend）</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.4.1" name="修正 reasoning 渲染（pre-wrap/markdown）" status="DONE"/>
+            <subtask id="T4.4.2" name="修正 reasoning part key，避免流式更新异常" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.5" name="Composer 布局对齐 opencode web" status="DONE" priority="P0">
+          输入框左右不应放置按钮；将 +、状态、Abort、Send 等收敛到输入框下方工具栏，整体布局对齐 opencode web 体验
+          <dependencies>T4.4</dependencies>
+          <acceptance_criteria>
+            <criterion id="T4.5-AC1" checked="true">输入框左右两侧无按钮（textarea 全宽）</criterion>
+            <criterion id="T4.5-AC2" checked="true">+ / agent / model / status / Abort / Send 以工具栏形式展示</criterion>
+            <criterion id="T4.5-AC3" checked="true">bun run build 通过（frontend）</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.5.1" name="调整 ChatPanel composer template 结构" status="DONE"/>
+            <subtask id="T4.5.2" name="更新 CSS（新工具栏样式/响应式）" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.6" name="Model/+ 弹窗可用性修复（popover 不被裁剪）" status="DONE" priority="P0">
+          修复模型选择与文件附加弹窗在 dockview/overflow 场景下不可见或不可点击的问题
+          <dependencies>T4.5</dependencies>
+          <acceptance_criteria>
+            <criterion id="T4.6-AC1" checked="true">Model 选择弹窗可见且可点击选择</criterion>
+            <criterion id="T4.6-AC2" checked="true">文件附加搜索弹窗可见且可点击选择</criterion>
+            <criterion id="T4.6-AC3" checked="true">bun test 通过（frontend）</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.6.1" name="修正 composer overflow/定位，避免弹窗被裁剪" status="DONE"/>
+            <subtask id="T4.6.2" name="手动验证：可选择 model 与 file" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.7" name="右侧 Tabs 默认激活 Todo" status="DONE" priority="P1">
+          初始布局下右侧分栏默认激活 Todo tab，便于查看 Todo 完成状态
+          <acceptance_criteria>
+            <criterion id="T4.7-AC1" checked="true">新建/无存储布局时默认激活 Todo</criterion>
+            <criterion id="T4.7-AC2" checked="true">useDockviewLayout.test.ts 通过</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.7.1" name="createDefaultLayout 显式 setActive right-todo" status="DONE"/>
+            <subtask id="T4.7.2" name="更新 useDockviewLayout.test.ts stub" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.8" name="Composer 输入框全宽修复" status="DONE" priority="P0">
+          修复输入框在布局重构后未占满所在行宽度的问题，确保 textarea 在当前面板宽度下全宽展示
+          <dependencies>T4.5</dependencies>
+          <acceptance_criteria>
+            <criterion id="T4.8-AC1" checked="true">textarea 占满 composer 输入区域宽度</criterion>
+            <criterion id="T4.8-AC2" checked="true">在窄宽度下不出现异常缩窄或溢出</criterion>
+            <criterion id="T4.8-AC3" checked="true">bun run build 通过（frontend）</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.8.1" name="修正 composer-input CSS（width/min-width/flex）" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.9" name="Context Raw Messages 列表视图" status="DONE" priority="P0">
+          优化右侧 Context tab 的 Raw messages 展示：用可展开列表替代整块 JSON；列表展示消息类型、时间、agent、前 20 字预览，并支持时间排序正序/倒序切换
+          <acceptance_criteria>
+            <criterion id="T4.9-AC1" checked="true">Raw messages 默认以列表展示，单条点击展开显示 JSON 详情</criterion>
+            <criterion id="T4.9-AC2" checked="true">列表行展示：消息类型、时间、agent、前 20 字预览</criterion>
+            <criterion id="T4.9-AC3" checked="true">默认按时间倒序排序，可切换正序/倒序</criterion>
+            <criterion id="T4.9-AC4" checked="true">bun test 通过（frontend）</criterion>
+            <criterion id="T4.9-AC5" checked="true">bun run build 通过（frontend）</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.9.1" name="新增 raw message 列表 helper + tests" status="DONE"/>
+            <subtask id="T4.9.2" name="RightPanel Context 替换 Raw messages 渲染" status="DONE"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.10" name="Raw message 预览文本对比度" status="DONE" priority="P1">
+          修复 Raw messages 列表预览文本在深色主题下颜色过暗导致不可读的问题
+          <dependencies>T4.9</dependencies>
+          <acceptance_criteria>
+            <criterion id="T4.10-AC1" checked="true">预览文本在深色主题下可读且层级为次要信息</criterion>
+            <criterion id="T4.10-AC2" checked="true">bun test 通过（frontend）</criterion>
+            <criterion id="T4.10-AC3" checked="true">bun run build 通过（frontend）</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.10.1" name="调整 raw-msg-preview 颜色（使用 var(--muted)）" status="DONE"/>
+          </subtasks>
+        </task>
+      </tasks>
+
+      <confirm protocol="yield-human-confirm" when="after" status="TODO" />
+    </phase>
+
+    <!-- ==================== P5: 全量验证 ==================== -->
+    <phase id="P5" name="全量回归验证">
+      <goal>确保所有改动通过测试和构建，UI 行为符合预期</goal>
+
+      <tasks>
+        <task id="T5.1" name="全面回归验证" status="TODO" priority="P0">
+          运行全部测试套件、构建验证、手动 UI 检查
+          <acceptance_criteria>
+            <criterion id="T5.1-AC1" checked="false">bun test 前端全部通过</criterion>
+            <criterion id="T5.1-AC2" checked="false">bun test 后端全部通过</criterion>
+            <criterion id="T5.1-AC3" checked="false">bun run build 通过</criterion>
+            <criterion id="T5.1-AC4" checked="false">12 项 UI/UX 改进全部可验证</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T5.1.1" name="运行全部测试套件" status="TODO"/>
+            <subtask id="T5.1.2" name="验证构建产物" status="TODO"/>
+            <subtask id="T5.1.3" name="逐项检查 12 项 UI/UX 改进" status="TODO"/>
+          </subtasks>
+        </task>
+      </tasks>
+
+      <confirm protocol="yield-human-confirm" when="after" status="TODO" />
+    </phase>
+  </phases>
+
+  <validations>
+    <validation id="V1" name="行为等价验证" status="TODO">
+      <description>确保所有现有功能在 UI 改造后仍正常工作</description>
+    </validation>
+    <validation id="V2" name="UI/UX 验收" status="TODO">
+      <description>逐项验证 12 项 UI/UX 改进是否符合 spec.md 中的验收标准</description>
+    </validation>
+  </validations>
+</plan>

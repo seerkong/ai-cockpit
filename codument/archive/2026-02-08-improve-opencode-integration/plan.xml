@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan>
+  <metadata>
+    <track_id>improve-opencode-integration</track_id>
+    <track_name>Improve OpenCode integration</track_name>
+    <goal>Improve connect modes, model selection UX, provider/model consistency, and performance via backend SQLite persistence and reduced redundant refresh calls.</goal>
+    <created_at>2026-02-07T16:55:50Z</created_at>
+    <updated_at>2026-02-08T16:06:55Z</updated_at>
+    <status>completed</status>
+    <commit_mode>manual</commit_mode>
+  </metadata>
+
+  <phases>
+    <phase id="P1" name="Persistence + Message Pagination">
+      <goal>Add backend SQLite persistence (full event log) and cursor/pagination for message history reads</goal>
+      <tasks>
+        <task id="T1.1" name="SQLite schema + workspace table" status="DONE" priority="P0" estimated_days="1">
+          Introduce a SQLite storage module with an independent workspaces table and an events table.
+          The storage MUST NOT persist workspace connection method details (spawn vs port).
+          <references>
+            <ref>codument/tracks/improve-opencode-integration/spec.md</ref>
+            <ref>codument/tracks/improve-opencode-integration/design.md</ref>
+          </references>
+          <acceptance_criteria>
+            <criterion id="T1.1-AC1" checked="true">SQLite schema creates workspaces + events tables</criterion>
+            <criterion id="T1.1-AC2" checked="true">Unit tests cover basic insert/query for workspaces + events</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.1.1" name="Write failing storage tests" status="DONE" estimated_hours="3"/>
+            <subtask id="T1.1.2" name="Implement schema bootstrap" status="DONE" estimated_hours="4"/>
+            <subtask id="T1.1.3" name="Implement basic DAO layer" status="DONE" estimated_hours="4"/>
+          </subtasks>
+        </task>
+
+        <task id="T1.2" name="Persist SSE events to SQLite" status="DONE" priority="P0" estimated_days="2">
+          Persist incoming OpenCode SSE events into SQLite (full event log), including enough metadata to filter by workspace + session.
+          <acceptance_criteria>
+            <criterion id="T1.2-AC1" checked="true">Events are stored with a stable cursor (monotonic id/sequence)</criterion>
+            <criterion id="T1.2-AC2" checked="true">SSE relay continues to function correctly</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.2.1" name="Write failing tests for event persistence" status="DONE" estimated_hours="3"/>
+            <subtask id="T1.2.2" name="Implement event write path" status="DONE" estimated_hours="6"/>
+            <subtask id="T1.2.3" name="Add retention hooks (no policy yet)" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+
+        <task id="T1.3" name="Messages API cursor/pagination" status="DONE" priority="P0" estimated_days="2">
+          Extend message history reads to support cursor/pagination so the UI can avoid repeatedly transferring the full message history.
+          <acceptance_criteria>
+            <criterion id="T1.3-AC1" checked="true">API supports fetching a bounded page of messages</criterion>
+            <criterion id="T1.3-AC2" checked="true">Cursor can fetch subsequent pages without duplicates</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.3.1" name="Write failing API tests" status="DONE" estimated_hours="3"/>
+            <subtask id="T1.3.2" name="Implement backend paging" status="DONE" estimated_hours="6"/>
+            <subtask id="T1.3.3" name="Update frontend to use cursor" status="DONE" estimated_hours="6"/>
+          </subtasks>
+        </task>
+      </tasks>
+    </phase>
+
+    <phase id="P2" name="Workspace Connect Modes">
+      <goal>Support both spawning a local server and connecting to an existing localhost OpenCode server by port</goal>
+      <tasks>
+        <task id="T2.1" name="Connect to running server by port (no auth)" status="DONE" priority="P0" estimated_days="2">
+          Add a connect mode that binds a workspace to an existing localhost OpenCode server given a port.
+          <acceptance_criteria>
+            <criterion id="T2.1-AC1" checked="true">UI allows selecting connect mode per connect attempt</criterion>
+            <criterion id="T2.1-AC2" checked="true">Backend validates health before completing connect</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.1.1" name="Write failing connect tests" status="DONE" estimated_hours="3"/>
+            <subtask id="T2.1.2" name="Implement backend connect mode" status="DONE" estimated_hours="6"/>
+            <subtask id="T2.1.3" name="Implement connect UI changes" status="DONE" estimated_hours="4"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.2" name="Disconnect workspace (spawn vs external server)" status="DONE" priority="P0" estimated_days="1">
+          Ensure the user can actively disconnect a workspace.
+          Disconnect must release runtime resources; if the workspace is bound to an external server, it MUST NOT kill that server process.
+          <acceptance_criteria>
+            <criterion id="T2.2-AC1" checked="true">Disconnect stops SSE/event stream and removes workspace from active list</criterion>
+            <criterion id="T2.2-AC2" checked="true">External server is not terminated on disconnect</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.2.1" name="Write failing disconnect tests" status="DONE" estimated_hours="2"/>
+            <subtask id="T2.2.2" name="Implement disconnect behavior" status="DONE" estimated_hours="4"/>
+          </subtasks>
+        </task>
+      </tasks>
+    </phase>
+
+    <phase id="P3" name="Models UX + Consistency">
+      <goal>Make model selection usable and fix provider/model consistency end-to-end</goal>
+      <tasks>
+        <task id="T3.1" name="Ensure custom providers/models appear" status="DONE" priority="P0" estimated_days="1">
+          Ensure that custom providers/models exposed by the connected OpenCode server appear in the cockpit model list.
+          <acceptance_criteria>
+            <criterion id="T3.1-AC1" checked="true">/models includes custom providers when OpenCode exposes them</criterion>
+          </acceptance_criteria>
+        </task>
+
+        <task id="T3.2" name="Model picker: provider grouping + keyword search" status="DONE" priority="P0" estimated_days="2">
+          Implement a provider-grouped, searchable model picker to replace the flat select.
+          <acceptance_criteria>
+            <criterion id="T3.2-AC1" checked="true">User can search models by keyword</criterion>
+            <criterion id="T3.2-AC2" checked="true">Models are grouped by provider</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.2.1" name="Add UI tests for picker filtering" status="DONE" estimated_hours="3"/>
+            <subtask id="T3.2.2" name="Implement picker component" status="DONE" estimated_hours="6"/>
+          </subtasks>
+        </task>
+
+        <task id="T3.3" name="Normalize model payload shape" status="DONE" priority="P0" estimated_days="1">
+          Normalize model serialization across prompt/shell/command flows.
+          Ensure canonical providerID/modelID are passed consistently.
+          <acceptance_criteria>
+            <criterion id="T3.3-AC1" checked="true">Prompt/shell/command send consistent model payload</criterion>
+            <criterion id="T3.3-AC2" checked="true">Message metadata reflects selected providerID/modelID</criterion>
+          </acceptance_criteria>
+        </task>
+      </tasks>
+    </phase>
+
+    <phase id="P4" name="Performance Hardening">
+      <goal>Eliminate redundant refresh storms and reduce unnecessary network calls</goal>
+      <tasks>
+        <task id="T4.1" name="Reduce /sessions refresh storms" status="DONE" priority="P0" estimated_days="1">
+          Filter and debounce session refresh triggers so a prompt lifecycle does not spam `/sessions`.
+          <acceptance_criteria>
+            <criterion id="T4.1-AC1" checked="true">Prompt lifecycle triggers at most 0-1 /sessions list calls</criterion>
+          </acceptance_criteria>
+        </task>
+      </tasks>
+    </phase>
+
+    <phase id="P5" name="Verification">
+      <goal>Add regression coverage and document QA results</goal>
+      <tasks>
+        <task id="T5.1" name="Automated regression tests (Playwright + unit)" status="DONE" priority="P1" estimated_days="2">
+          Add regression coverage using Playwright E2E plus unit/integration tests for connect modes, model selection, pagination, and session refresh behavior.
+          <acceptance_criteria>
+            <criterion id="T5.1-AC1" checked="true">Playwright E2E covers connect-by-port and model picker selection</criterion>
+            <criterion id="T5.1-AC2" checked="true">Unit/integration tests cover pagination and session refresh behavior</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T5.1.1" name="Add Playwright E2E spec(s)" status="DONE" estimated_hours="4"/>
+            <subtask id="T5.1.2" name="Add unit/integration tests" status="DONE" estimated_hours="4"/>
+          </subtasks>
+        </task>
+
+        <task id="T5.2" name="Manual QA checklist" status="DONE" priority="P1" estimated_days="1">
+          Run a manual QA checklist for the new connect mode, model picker UX, and performance improvements.
+          <acceptance_criteria>
+            <criterion id="T5.2-AC1" checked="true">QA passes or known deviations are recorded</criterion>
+          </acceptance_criteria>
+        </task>
+      </tasks>
+    </phase>
+  </phases>
+</plan>

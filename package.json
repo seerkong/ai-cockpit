@@ -1,0 +1,22 @@
+{
+  "name": "ai-cockpit",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend",
+    "shared"
+  ],
+  "scripts": {
+    "postinstall": "bun run --filter frontend postinstall",
+    "dev:backend": "bun run --filter backend dev",
+    "dev:frontend": "bun run --filter frontend dev",
+    "test:backend": "bun run --filter backend test",
+    "test:frontend": "bun run --filter frontend test",
+    "test:e2e": "playwright test -c playwright.config.ts",
+    "test": "bun run test:backend && bun run test:frontend && bun run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "concurrently": "^8.2.2"
+  }
+}

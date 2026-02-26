@@ -1,0 +1,10 @@
+{
+  "track_id": "refactor-multi-workspace-session-dashboard",
+  "type": "feature",
+  "status": "done",
+  "commit_mode": "auto",
+  "created_at": "2026-02-08T19:09:05Z",
+  "updated_at": "2026-02-10T14:54:00Z",
+  "completed_at": "2026-02-10T14:54:00Z",
+  "description": "重构 workspace 与 session 导航和连接管理：详情页增加 workspace 列表与路径展示、session 状态可见、根页改为 workspace 配置管理、详情页支持多 workspace 会话连接并移除 URL 中 sessionId"
+}

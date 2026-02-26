@@ -1,0 +1,149 @@
+<plan>
+  <metadata>
+    <track_id>migrate-streaming-ws-json-patch</track_id>
+    <track_name>Migrate streaming to WS + JSON Patch</track_name>
+    <goal>Replace SSE-based realtime updates with a workspace-scoped WebSocket + RFC6902 JSON Patch channel (with snapshot reconnect and SSE fallback) to enable true streaming UX and future A2UI-style interactions.</goal>
+    <created_at>2026-02-08T18:03:47Z</created_at>
+    <updated_at>2026-02-09T19:54:38Z</updated_at>
+    <status>completed</status>
+    <commit_mode>manual</commit_mode>
+  </metadata>
+
+  <phases>
+    <phase id="P1" name="Protocol + Realtime State">
+      <goal>Define the WS protocol and a normalized realtime state tree suitable for JSON Patch updates</goal>
+      <tasks>
+        <task id="T1.1" name="Define WS protocol + state schema" status="DONE" priority="P0" estimated_days="1">
+          Define message envelopes (subscribe/snapshot/patch/error) and the normalized realtime state tree shape.
+          <references>
+            <ref>codument/tracks/migrate-streaming-ws-json-patch/spec.md</ref>
+            <ref>codument/tracks/migrate-streaming-ws-json-patch/design.md</ref>
+          </references>
+          <acceptance_criteria>
+            <criterion id="T1.1-AC1" checked="true">Shared types exist for subscribe/snapshot/patch messages and realtime state tree</criterion>
+            <criterion id="T1.1-AC2" checked="true">Example payloads are documented and can be serialized/deserialized</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.1.1" name="Write failing tests for protocol encoding" status="DONE" estimated_hours="2"/>
+            <subtask id="T1.1.2" name="Implement shared protocol + state types" status="DONE" estimated_hours="3"/>
+            <subtask id="T1.1.3" name="Add example payload fixtures" status="DONE" estimated_hours="1"/>
+          </subtasks>
+        </task>
+
+        <task id="T1.2" name="Frontend JSON Patch apply layer" status="DONE" priority="P0" estimated_days="1">
+          Implement a frontend patch-apply layer for RFC 6902 operations against the realtime state tree.
+          <acceptance_criteria>
+            <criterion id="T1.2-AC1" checked="true">Applying a stream of patches updates state deterministically</criterion>
+            <criterion id="T1.2-AC2" checked="true">Invalid/out-of-date patches trigger a safe resync path</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T1.2.1" name="Pick JSON Patch implementation (library vs minimal)" status="DONE" estimated_hours="1"/>
+            <subtask id="T1.2.2" name="Write failing unit tests for patch apply" status="DONE" estimated_hours="2"/>
+            <subtask id="T1.2.3" name="Implement patch apply + resync hooks" status="DONE" estimated_hours="3"/>
+          </subtasks>
+        </task>
+      </tasks>
+    </phase>
+
+    <phase id="P2" name="Backend WebSocket Gateway">
+      <goal>Add a workspace-scoped WS endpoint with auth, subscribe, snapshot, and patch streaming</goal>
+      <tasks>
+        <task id="T2.1" name="WS endpoint + auth + subscribe + snapshot" status="DONE" priority="P0" estimated_days="2">
+          Add a workspace-scoped WebSocket endpoint and implement token auth, subscribe/unsubscribe, and snapshot delivery.
+          <acceptance_criteria>
+            <criterion id="T2.1-AC1" checked="true">Client can connect with workspace token and subscribe to a session</criterion>
+            <criterion id="T2.1-AC2" checked="true">Server sends a snapshot on subscribe and on reconnect</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.1.1" name="Write failing backend tests for WS handshake" status="DONE" estimated_hours="3"/>
+            <subtask id="T2.1.2" name="Implement Bun WS upgrade + routing" status="DONE" estimated_hours="4"/>
+            <subtask id="T2.1.3" name="Implement subscribe + snapshot builder" status="DONE" estimated_hours="6"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.2" name="Bridge OpenCode events -> state -> patch" status="DONE" priority="P0" estimated_days="3">
+          Map upstream OpenCode events into state mutations and emit RFC6902 patches to subscribed clients.
+          <acceptance_criteria>
+            <criterion id="T2.2-AC1" checked="true">Assistant streaming updates are emitted as patches and visible incrementally</criterion>
+            <criterion id="T2.2-AC2" checked="true">Sessions/status/permissions/questions updates are emitted without REST refetch storms</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.2.1" name="Write failing tests for event-to-patch mapping" status="DONE" estimated_hours="4"/>
+            <subtask id="T2.2.2" name="Implement state mutation mapping" status="DONE" estimated_hours="6"/>
+            <subtask id="T2.2.3" name="Implement patch generation + broadcast" status="DONE" estimated_hours="6"/>
+          </subtasks>
+        </task>
+
+        <task id="T2.3" name="Backpressure + batching without breaking streaming" status="DONE" priority="P1" estimated_days="1">
+          Add safety limits and batching/coalescing so slow clients cannot cause unbounded buffering.
+          <acceptance_criteria>
+            <criterion id="T2.3-AC1" checked="true">Server enforces backpressure limits and remains stable under slow clients</criterion>
+            <criterion id="T2.3-AC2" checked="true">Batching does not regress perceived streaming (no end-only flush)</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T2.3.1" name="Implement ws drain/backpressure strategy" status="DONE" estimated_hours="3"/>
+            <subtask id="T2.3.2" name="Add tests / load simulation" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+      </tasks>
+    </phase>
+
+    <phase id="P3" name="Frontend Integration + Fallback">
+      <goal>Switch UI realtime updates to WS+patch, with reconnect + SSE fallback</goal>
+      <tasks>
+        <task id="T3.1" name="WebSocket client + reconnect + SSE fallback" status="DONE" priority="P0" estimated_days="2">
+          Implement a WS client wrapper for connect/reconnect and fallback to SSE when WS is unavailable.
+          <acceptance_criteria>
+            <criterion id="T3.1-AC1" checked="true">WS connects and reconnects automatically</criterion>
+            <criterion id="T3.1-AC2" checked="true">On WS failure, UI falls back to SSE and remains functional</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.1.1" name="Write failing unit tests for WS client wrapper" status="DONE" estimated_hours="3"/>
+            <subtask id="T3.1.2" name="Implement WS connect/subscription" status="DONE" estimated_hours="4"/>
+            <subtask id="T3.1.3" name="Implement fallback + error UX" status="DONE" estimated_hours="3"/>
+          </subtasks>
+        </task>
+
+        <task id="T3.2" name="Migrate SessionPage realtime updates to patch state" status="DONE" priority="P0" estimated_days="3">
+          Replace EventSource-driven incremental UI updates with state derived from WS snapshot/patch.
+          <acceptance_criteria>
+            <criterion id="T3.2-AC1" checked="true">Assistant output renders incrementally during generation</criterion>
+            <criterion id="T3.2-AC2" checked="true">Sessions, permissions, and questions update via the realtime state</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T3.2.1" name="Refactor UI state to consume realtime state tree" status="DONE" estimated_hours="6"/>
+            <subtask id="T3.2.2" name="Wire WS patches into message/part rendering" status="DONE" estimated_hours="6"/>
+            <subtask id="T3.2.3" name="Keep SSE fallback path working" status="DONE" estimated_hours="2"/>
+          </subtasks>
+        </task>
+      </tasks>
+    </phase>
+
+    <phase id="P4" name="Verification">
+      <goal>Add regression coverage + manual QA for the WS streaming path and fallback</goal>
+      <tasks>
+        <task id="T4.1" name="Automated regression tests (unit + e2e)" status="DONE" priority="P0" estimated_days="2">
+          Add regression tests for WS streaming, snapshot reconnect, and SSE fallback.
+          <acceptance_criteria>
+            <criterion id="T4.1-AC1" checked="true">Unit tests cover patch apply + subscription lifecycle</criterion>
+            <criterion id="T4.1-AC2" checked="true">Playwright E2E proves perceived streaming and fallback behavior</criterion>
+          </acceptance_criteria>
+          <subtasks>
+            <subtask id="T4.1.1" name="Add unit tests for patch apply + mapping" status="DONE" estimated_hours="4"/>
+            <subtask id="T4.1.2" name="Add Playwright E2E coverage for WS" status="DONE" estimated_hours="4"/>
+          </subtasks>
+        </task>
+
+        <task id="T4.2" name="Manual QA checklist" status="DONE" priority="P1" estimated_days="1">
+          Create a manual QA checklist and record results/known deviations.
+          <references>
+            <ref>codument/tracks/migrate-streaming-ws-json-patch/test-workspace.md</ref>
+          </references>
+          <acceptance_criteria>
+            <criterion id="T4.2-AC1" checked="true">QA passes or known deviations are recorded</criterion>
+          </acceptance_criteria>
+        </task>
+      </tasks>
+    </phase>
+  </phases>
+</plan>
