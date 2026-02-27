@@ -1,4 +1,7 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 
 import { createFetchHandler, getSessionToken, type WorkspaceRecord, type WorkspaceRegistryLike } from './app'
 import type { ProviderCapabilities, WorkspaceProvider } from './providers/types'
@@ -1817,5 +1820,308 @@ describe('fetch handler basics', () => {
     const res = await fetchHandler(new Request('http://localhost/unknown'))
     expect(res.status).toBe(404)
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Codument API tests
+// ---------------------------------------------------------------------------
+
+function makeCodumentFixture() {
+  const root = path.join(tmpdir(), `codument-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  const codumentDir = path.join(root, 'codument')
+  const tracksDir = path.join(codumentDir, 'tracks')
+
+  // track-alpha: completed, track-beta: in_progress, track-gamma: in_progress
+  mkdirSync(path.join(tracksDir, 'track-alpha'), { recursive: true })
+  mkdirSync(path.join(tracksDir, 'track-beta'), { recursive: true })
+  mkdirSync(path.join(tracksDir, 'track-gamma'), { recursive: true })
+
+  // tracks.md — track-beta is [~] first, track-gamma is [~] last → defaultTrackId = track-gamma
+  const tracksMd = [
+    '| Track ID | Track Name | Status | Description |',
+    '| --- | --- | --- | --- |',
+    '| track-alpha | Alpha Feature | [x] Completed | done |',
+    '| track-beta | Beta Feature | [~] In Progress | wip |',
+    '| track-gamma | Gamma Feature | [~] In Progress | wip2 |',
+  ].join('\n')
+  writeFileSync(path.join(codumentDir, 'tracks.md'), tracksMd)
+
+  // plan.xml for track-alpha (completed)
+  writeFileSync(
+    path.join(tracksDir, 'track-alpha', 'plan.xml'),
+    `<plan>
+  <track_name>Alpha Feature</track_name>
+  <status>completed</status>
+  <phase id="p1" name="Setup">
+    <task id="t1" name="Init repo" status="DONE">
+      <subtask id="s1" name="Clone" status="DONE" />
+    </task>
+  </phase>
+</plan>`,
+  )
+
+  // plan.xml for track-beta (in_progress, with mixed statuses)
+  writeFileSync(
+    path.join(tracksDir, 'track-beta', 'plan.xml'),
+    `<plan>
+  <track_name>Beta Feature</track_name>
+  <status>in_progress</status>
+  <phase id="p1" name="Design">
+    <task id="t1" name="Write spec" status="DONE">
+      <subtask id="s1" name="Draft" status="DONE" />
+      <subtask id="s2" name="Review" status="DONE" />
+    </task>
+    <task id="t2" name="Implement" status="IN_PROGRESS">
+      <subtask id="s3" name="Code" status="IN_PROGRESS" />
+      <subtask id="s4" name="Test" status="TODO" />
+    </task>
+  </phase>
+  <phase id="p2" name="Deploy">
+    <task id="t3" name="Release" status="TODO">
+      <subtask id="s5" name="Tag" status="TODO" />
+    </task>
+  </phase>
+</plan>`,
+  )
+
+  // plan.xml for track-gamma
+  writeFileSync(
+    path.join(tracksDir, 'track-gamma', 'plan.xml'),
+    `<plan>
+  <track_name>Gamma Feature</track_name>
+  <status>in_progress</status>
+  <phase id="p1" name="Research">
+    <task id="t1" name="Spike" status="TODO">
+      <subtask id="s1" name="Explore" status="TODO" />
+    </task>
+  </phase>
+</plan>`,
+  )
+
+  return root
+}
+
+const codumentFixtureRoot = makeCodumentFixture()
+afterAll(() => {
+  rmSync(codumentFixtureRoot, { recursive: true, force: true })
+})
+
+describe('GET /api/v1/workspaces/{workspaceId}/codument/tracks', () => {
+  test('returns tracks list with defaultTrackId being last [~] track with plan.xml', async () => {
+    const registry = new FakeWorkspaceRegistry()
+    const fetchHandler = createFetchHandler(registry)
+    const ws = await registry.connectLocal(codumentFixtureRoot)
+
+    const res = await fetchHandler(
+      new Request(`http://localhost/api/v1/workspaces/${ws.id}/codument/tracks`, {
+        headers: { 'x-proto-session': ws.token },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const data = (await res.json()) as {
+      tracks: Array<{ trackId: string; trackName: string; status: string; statusSymbol: string }>
+      defaultTrackId: string
+    }
+
+    // defaultTrackId should be track-gamma (last [~] in tracks.md that has plan.xml)
+    expect(data.defaultTrackId).toBe('track-gamma')
+
+    expect(Array.isArray(data.tracks)).toBe(true)
+    expect(data.tracks.length).toBe(3)
+
+    // Verify each track has required fields
+    for (const track of data.tracks) {
+      expect(typeof track.trackId).toBe('string')
+      expect(typeof track.trackName).toBe('string')
+      expect(typeof track.status).toBe('string')
+      expect(typeof track.statusSymbol).toBe('string')
+      expect(['[x]', '[~]', '[ ]']).toContain(track.statusSymbol)
+    }
+
+    // Verify ordering follows tracks.md row order
+    expect(data.tracks[0]!.trackId).toBe('track-alpha')
+    expect(data.tracks[1]!.trackId).toBe('track-beta')
+    expect(data.tracks[2]!.trackId).toBe('track-gamma')
+
+    // Verify status symbols
+    const alpha = data.tracks.find((t) => t.trackId === 'track-alpha')!
+    expect(alpha.statusSymbol).toBe('[x]')
+    expect(alpha.status).toBe('completed')
+
+    const beta = data.tracks.find((t) => t.trackId === 'track-beta')!
+    expect(beta.statusSymbol).toBe('[~]')
+    expect(beta.status).toBe('in_progress')
+  })
+
+  test('returns 401 without token', async () => {
+    const registry = new FakeWorkspaceRegistry()
+    const fetchHandler = createFetchHandler(registry)
+    await registry.connectLocal(codumentFixtureRoot)
+
+    const res = await fetchHandler(
+      new Request('http://localhost/api/v1/workspaces/ws_1/codument/tracks'),
+    )
+    expect(res.status).toBe(401)
+  })
+})
+
+describe('GET /api/v1/workspaces/{workspaceId}/codument/tracks/{trackId}/tree', () => {
+  test('returns phase-task-subtask three-level structure', async () => {
+    const registry = new FakeWorkspaceRegistry()
+    const fetchHandler = createFetchHandler(registry)
+    const ws = await registry.connectLocal(codumentFixtureRoot)
+
+    const res = await fetchHandler(
+      new Request(`http://localhost/api/v1/workspaces/${ws.id}/codument/tracks/track-beta/tree`, {
+        headers: { 'x-proto-session': ws.token },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const data = (await res.json()) as {
+      tree: {
+        trackId: string
+        trackName: string
+        status: string
+        statusSymbol: string
+        phases: Array<{
+          id: string
+          name: string
+          status: string
+          statusSymbol: string
+          tasks: Array<{
+            id: string
+            name: string
+            status: string
+            statusSymbol: string
+            subtasks: Array<{
+              id: string
+              name: string
+              status: string
+              statusSymbol: string
+            }>
+          }>
+        }>
+      }
+    }
+
+    const tree = data.tree
+    expect(tree.trackId).toBe('track-beta')
+    expect(tree.trackName).toBe('Beta Feature')
+    expect(Array.isArray(tree.phases)).toBe(true)
+    expect(tree.phases.length).toBe(2)
+
+    // Phase 1: Design — has DONE + IN_PROGRESS tasks → IN_PROGRESS
+    const phase1 = tree.phases[0]!
+    expect(phase1.id).toBe('p1')
+    expect(phase1.name).toBe('Design')
+    expect(phase1.status).toBe('IN_PROGRESS')
+    expect(phase1.statusSymbol).toBe('[~]')
+    expect(phase1.tasks.length).toBe(2)
+
+    // Task t1: Write spec — DONE
+    const task1 = phase1.tasks[0]!
+    expect(task1.status).toBe('DONE')
+    expect(task1.statusSymbol).toBe('[x]')
+    expect(task1.subtasks.length).toBe(2)
+    expect(task1.subtasks[0]!.status).toBe('DONE')
+    expect(task1.subtasks[0]!.statusSymbol).toBe('[x]')
+
+    // Task t2: Implement — IN_PROGRESS
+    const task2 = phase1.tasks[1]!
+    expect(task2.status).toBe('IN_PROGRESS')
+    expect(task2.statusSymbol).toBe('[~]')
+    expect(task2.subtasks.length).toBe(2)
+    expect(task2.subtasks[0]!.statusSymbol).toBe('[~]') // IN_PROGRESS
+    expect(task2.subtasks[1]!.statusSymbol).toBe('[ ]') // TODO
+
+    // Phase 2: Deploy — all TODO
+    const phase2 = tree.phases[1]!
+    expect(phase2.id).toBe('p2')
+    expect(phase2.status).toBe('TODO')
+    expect(phase2.statusSymbol).toBe('[ ]')
+  })
+
+  test('statusSymbol mapping: DONE=>[x], IN_PROGRESS=>[~], TODO=>[ ]', async () => {
+    const registry = new FakeWorkspaceRegistry()
+    const fetchHandler = createFetchHandler(registry)
+    const ws = await registry.connectLocal(codumentFixtureRoot)
+
+    const res = await fetchHandler(
+      new Request(`http://localhost/api/v1/workspaces/${ws.id}/codument/tracks/track-alpha/tree`, {
+        headers: { 'x-proto-session': ws.token },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const data = (await res.json()) as { tree: { statusSymbol: string; phases: Array<{ tasks: Array<{ statusSymbol: string; subtasks: Array<{ statusSymbol: string }> }> }> } }
+    // track-alpha is completed, all DONE
+    expect(data.tree.statusSymbol).toBe('[x]')
+    expect(data.tree.phases[0]!.tasks[0]!.statusSymbol).toBe('[x]')
+    expect(data.tree.phases[0]!.tasks[0]!.subtasks[0]!.statusSymbol).toBe('[x]')
+  })
+
+  test('returns 400 for trackId containing / after decoding', async () => {
+    const registry = new FakeWorkspaceRegistry()
+    const fetchHandler = createFetchHandler(registry)
+    const ws = await registry.connectLocal(codumentFixtureRoot)
+
+    const encodedTrackId = encodeURIComponent('evil/path')
+    const res = await fetchHandler(
+      new Request(`http://localhost/api/v1/workspaces/${ws.id}/codument/tracks/${encodedTrackId}/tree`, {
+        headers: { 'x-proto-session': ws.token },
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    const data = (await res.json()) as { error: string }
+    expect(data.error).toBe('invalid track id')
+  })
+
+  test('returns 400 for trackId containing ..', async () => {
+    const registry = new FakeWorkspaceRegistry()
+    const fetchHandler = createFetchHandler(registry)
+    const ws = await registry.connectLocal(codumentFixtureRoot)
+
+    const encodedTrackId = encodeURIComponent('..%2Fetc')
+    const res = await fetchHandler(
+      new Request(`http://localhost/api/v1/workspaces/${ws.id}/codument/tracks/${encodedTrackId}/tree`, {
+        headers: { 'x-proto-session': ws.token },
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    const data = (await res.json()) as { error: string }
+    expect(data.error).toBe('invalid track id')
+  })
+
+  test('returns 400 for trackId containing backslash', async () => {
+    const registry = new FakeWorkspaceRegistry()
+    const fetchHandler = createFetchHandler(registry)
+    const ws = await registry.connectLocal(codumentFixtureRoot)
+
+    const encodedTrackId = encodeURIComponent('evil\\path')
+    const res = await fetchHandler(
+      new Request(`http://localhost/api/v1/workspaces/${ws.id}/codument/tracks/${encodedTrackId}/tree`, {
+        headers: { 'x-proto-session': ws.token },
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    const data = (await res.json()) as { error: string }
+    expect(data.error).toBe('invalid track id')
+  })
+
+  test('returns 401 without token', async () => {
+    const registry = new FakeWorkspaceRegistry()
+    const fetchHandler = createFetchHandler(registry)
+    await registry.connectLocal(codumentFixtureRoot)
+
+    const res = await fetchHandler(
+      new Request('http://localhost/api/v1/workspaces/ws_1/codument/tracks/track-beta/tree'),
+    )
+    expect(res.status).toBe(401)
   })
 })
