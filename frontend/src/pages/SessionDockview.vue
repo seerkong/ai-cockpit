@@ -137,6 +137,46 @@ const todos = ref<TodoItem[]>([]);
 const todosLoading = ref(false);
 const todosError = ref<string | null>(null);
 
+// Codument state
+type CodumentTrack = {
+  trackId: string;
+  trackName: string;
+  status: string;
+  statusSymbol: '[x]' | '[~]' | '[ ]';
+};
+type CodumentTrackTree = {
+  trackId: string;
+  trackName: string;
+  status: string;
+  statusSymbol: '[x]' | '[~]' | '[ ]';
+  phases: Array<{
+    id: string;
+    name: string;
+    status: string;
+    statusSymbol: '[x]' | '[~]' | '[ ]';
+    tasks: Array<{
+      id: string;
+      name: string;
+      status: string;
+      statusSymbol: '[x]' | '[~]' | '[ ]';
+      subtasks: Array<{
+        id: string;
+        name: string;
+        status: string;
+        statusSymbol: '[x]' | '[~]' | '[ ]';
+      }>;
+    }>;
+  }>;
+};
+const codumentTracks = ref<CodumentTrack[]>([]);
+const codumentTracksLoading = ref(false);
+const codumentTracksError = ref<string | null>(null);
+const selectedCodumentTrackId = ref('');
+const boundCodumentTrackId = ref('');
+const codumentTrackTree = ref<CodumentTrackTree | null>(null);
+const codumentTrackTreeLoading = ref(false);
+const codumentTrackTreeError = ref<string | null>(null);
+
 // Files state
 type FileNode = { path: string; name: string; type: 'file' | 'dir' };
 type SearchResult = { path: string; line_number: number; lines?: string[] };
@@ -446,6 +486,150 @@ watch([activeConnectionId, () => capabilities.value?.questions], () => {
 
 function handleUpdateQuestionAnswer(questionId: string, answer: string) { questionAnswerDrafts[questionId] = answer; }
 function handleRefreshTodos() { console.log('Refresh todos'); }
+
+// --- Codument handlers ---
+
+async function handleRefreshCodumentTracks() {
+  const cid = activeConnectionId.value;
+  if (!cid) return;
+  codumentTracksLoading.value = true;
+  codumentTracksError.value = null;
+  try {
+    const resp = await apiFetchForConnection(cid, `/api/v1/workspaces/${cid}/codument/tracks`);
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(text || `Failed to load codument tracks (${resp.status})`);
+    }
+    const payload = await resp.json().catch(() => ({ tracks: [] }));
+    const tracksRaw = Array.isArray(payload)
+      ? payload
+      : (Array.isArray(payload?.tracks) ? payload.tracks : []);
+    const tracks = tracksRaw.filter((item): item is CodumentTrack => {
+      if (!item || typeof item !== 'object') return false;
+      const row = item as Partial<CodumentTrack>;
+      return typeof row.trackId === 'string';
+    });
+    codumentTracks.value = tracks;
+
+    // Default selection logic (priority order)
+    const current = selectedCodumentTrackId.value;
+    const bound = boundCodumentTrackId.value;
+    const stored = workspacesStore.codumentTrackFor(cid);
+    const defaultId = typeof payload?.defaultTrackId === 'string' ? payload.defaultTrackId : '';
+    const hasTrack = (trackId: string) => tracks.some((item) => item.trackId === trackId);
+
+    if (current && hasTrack(current)) {
+      selectedCodumentTrackId.value = current;
+    } else if (bound && hasTrack(bound)) {
+      selectedCodumentTrackId.value = bound;
+    } else if (stored && hasTrack(stored)) {
+      selectedCodumentTrackId.value = stored;
+    } else if (defaultId && hasTrack(defaultId)) {
+      selectedCodumentTrackId.value = defaultId;
+    } else {
+      selectedCodumentTrackId.value = '';
+    }
+  } catch (err) {
+    codumentTracksError.value = err instanceof Error ? err.message : 'Failed to load codument tracks.';
+    codumentTracks.value = [];
+  } finally {
+    codumentTracksLoading.value = false;
+  }
+}
+
+async function handleRefreshCodumentTrackTree(trackId?: string) {
+  const tid = trackId ?? selectedCodumentTrackId.value;
+  if (!tid) { codumentTrackTree.value = null; return; }
+  const cid = activeConnectionId.value;
+  if (!cid) return;
+  codumentTrackTreeLoading.value = true;
+  codumentTrackTreeError.value = null;
+  try {
+    const resp = await apiFetchForConnection(
+      cid,
+      `/api/v1/workspaces/${cid}/codument/tracks/${encodeURIComponent(tid)}/tree`,
+    );
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(text || `Failed to load codument track tree (${resp.status})`);
+    }
+    const payload = await resp.json().catch(() => null);
+    const tree = payload && typeof payload === 'object' && 'tree' in payload
+      ? (payload as { tree: unknown }).tree
+      : payload;
+    codumentTrackTree.value = tree && typeof tree === 'object'
+      ? (tree as CodumentTrackTree)
+      : null;
+  } catch (err) {
+    codumentTrackTreeError.value = err instanceof Error ? err.message : 'Failed to load codument track tree.';
+    codumentTrackTree.value = null;
+  } finally {
+    codumentTrackTreeLoading.value = false;
+  }
+}
+
+function handleUpdateCodumentTrackId(trackId: string) {
+  selectedCodumentTrackId.value = trackId;
+  void handleRefreshCodumentTrackTree(trackId);
+}
+
+function handleBindCodumentTrack() {
+  const cid = activeConnectionId.value;
+  const tid = selectedCodumentTrackId.value;
+  if (!cid || !tid) return;
+  boundCodumentTrackId.value = tid;
+  workspacesStore.setLastCodumentTrack(cid, tid);
+}
+
+// Codument auto-refresh (15s interval)
+const codumentAutoRefreshEnabled = ref(true);
+let codumentPollTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopCodumentPolling() {
+  if (!codumentPollTimer) return;
+  clearInterval(codumentPollTimer);
+  codumentPollTimer = null;
+}
+
+function startCodumentPolling() {
+  stopCodumentPolling();
+  if (!codumentAutoRefreshEnabled.value) return;
+  const cid = activeConnectionId.value;
+  if (!cid) return;
+  codumentPollTimer = setInterval(() => {
+    void handleRefreshCodumentTracks();
+    if (selectedCodumentTrackId.value) {
+      void handleRefreshCodumentTrackTree();
+    }
+  }, 15_000);
+}
+
+function handleUpdateCodumentAutoRefreshEnabled(value: boolean) {
+  codumentAutoRefreshEnabled.value = value;
+  if (!value) {
+    stopCodumentPolling();
+  } else if (activeConnectionId.value) {
+    startCodumentPolling();
+  }
+}
+
+watch(activeConnectionId, async (cid) => {
+  stopCodumentPolling();
+  if (!cid) {
+    codumentTracks.value = [];
+    selectedCodumentTrackId.value = '';
+    boundCodumentTrackId.value = '';
+    codumentTrackTree.value = null;
+    return;
+  }
+  // Restore bound track from store
+  boundCodumentTrackId.value = workspacesStore.codumentTrackFor(cid);
+  await handleRefreshCodumentTracks();
+  if (selectedCodumentTrackId.value) {
+    await handleRefreshCodumentTrackTree();
+  }
+  startCodumentPolling();
+});
 function handleLoadFile(path: string) { console.log('Load file:', path); }
 function handleLoadDirectory(path: string) { console.log('Load directory:', path); }
 function handleRunSearch() { console.log('Run search:', searchPattern.value); }
@@ -480,12 +664,27 @@ provide('onLoadDirectory', handleLoadDirectory);
 provide('onUpdateSearchPattern', (pattern: string) => { searchPattern.value = pattern; });
 provide('onRunSearch', handleRunSearch);
 
+// Codument provides
+provide('codumentTracks', codumentTracks);
+provide('codumentTracksLoading', codumentTracksLoading);
+provide('codumentTracksError', codumentTracksError);
+provide('selectedCodumentTrackId', selectedCodumentTrackId);
+provide('boundCodumentTrackId', boundCodumentTrackId);
+provide('codumentTrackTree', codumentTrackTree);
+provide('codumentTrackTreeLoading', codumentTrackTreeLoading);
+provide('codumentTrackTreeError', codumentTrackTreeError);
+provide('onRefreshCodumentTracks', handleRefreshCodumentTracks);
+provide('onUpdateCodumentTrackId', handleUpdateCodumentTrackId);
+provide('onBindCodumentTrack', handleBindCodumentTrack);
+provide('codumentAutoRefreshEnabled', codumentAutoRefreshEnabled);
+provide('onUpdateCodumentAutoRefreshEnabled', handleUpdateCodumentAutoRefreshEnabled);
+
 // Toolbar actions (AppToolbar lives outside this provide scope)
 watch(newConnectionRequested, () => {
   handleNewConnection();
 });
 
-onBeforeUnmount(() => { stopMessagePolling(); stopPermissionsPolling(); stopQuestionsPolling(); dockApi.value?.dispose(); });
+onBeforeUnmount(() => { stopMessagePolling(); stopPermissionsPolling(); stopQuestionsPolling(); stopCodumentPolling(); dockApi.value?.dispose(); });
 
 onMounted(async () => {
   token.value = localStorage.getItem('auth-token');

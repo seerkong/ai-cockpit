@@ -54,6 +54,7 @@ const chatInjects: InjectMap = {
 };
 
 const rightPanelInjects: InjectMap = {
+  activeConnectionId: { unwrapRef: true, defaultValue: '' },
   sessionId: { unwrapRef: true, defaultValue: '' },
   capabilities: { unwrapRef: true, defaultValue: null },
   diffs: { unwrapRef: true, defaultValue: [] },
@@ -81,6 +82,14 @@ const rightPanelInjects: InjectMap = {
   fileContent: { unwrapRef: true, defaultValue: '' },
   searchPattern: { unwrapRef: true, defaultValue: '' },
   searchResults: { unwrapRef: true, defaultValue: [] },
+  codumentTracks: { unwrapRef: true, defaultValue: [] },
+  codumentTracksLoading: { unwrapRef: true, defaultValue: false },
+  codumentTracksError: { unwrapRef: true, defaultValue: null },
+  selectedCodumentTrackId: { unwrapRef: true, defaultValue: '' },
+  boundCodumentTrackId: { unwrapRef: true, defaultValue: '' },
+  codumentTrackTree: { unwrapRef: true, defaultValue: null },
+  codumentTrackTreeLoading: { unwrapRef: true, defaultValue: false },
+  codumentTrackTreeError: { unwrapRef: true, defaultValue: null },
   onRefreshDiffs: {},
   onUpdateDiffViewMode: { prop: 'onUpdate:diffViewMode' },
   onToggleDiffExpanded: {},
@@ -99,6 +108,11 @@ const rightPanelInjects: InjectMap = {
   onLoadDirectory: {},
   onUpdateSearchPattern: { prop: 'onUpdate:searchPattern' },
   onRunSearch: {},
+  onRefreshCodumentTracks: {},
+  onUpdateCodumentTrackId: { prop: 'onUpdate:codumentTrackId' },
+  onBindCodumentTrack: {},
+  codumentAutoRefreshEnabled: { unwrapRef: true, defaultValue: true },
+  onUpdateCodumentAutoRefreshEnabled: { prop: 'onUpdate:codumentAutoRefreshEnabled' },
 };
 
 const bottomPanelInjects: InjectMap = {
@@ -113,6 +127,7 @@ export const dockviewPanelComponents = {
   'right-review': createPanelWrapper(RightPanelComponent, rightPanelInjects, { mode: 'review' }, 'RightPanelReviewWrapper'),
   'right-context': createPanelWrapper(RightPanelComponent, rightPanelInjects, { mode: 'context' }, 'RightPanelContextWrapper'),
   'right-todo': createPanelWrapper(RightPanelComponent, rightPanelInjects, { mode: 'todo' }, 'RightPanelTodoWrapper'),
+  'right-codument': createPanelWrapper(RightPanelComponent, rightPanelInjects, { mode: 'codument' }, 'RightPanelCodumentWrapper'),
   'bottom-terminal': createPanelWrapper(BottomPanelComponent, bottomPanelInjects, { mode: 'terminal' }, 'BottomPanelTerminalWrapper'),
   'bottom-console': createPanelWrapper(BottomPanelComponent, bottomPanelInjects, { mode: 'console' }, 'BottomPanelConsoleWrapper'),
 };

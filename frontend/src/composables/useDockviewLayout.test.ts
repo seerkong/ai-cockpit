@@ -120,12 +120,13 @@ describe('useDockviewLayout', () => {
       'right-context',
       'right-review',
       'right-files',
+      'right-codument',
       'bottom-terminal',
       'bottom-console',
     ]);
     expect(stub.sizedPanels.has('connections')).toBe(true);
     stub.triggerLayoutChange();
-    expect(localStorage.getItem('session-dockview-layout-v3')).toBeTruthy();
+    expect(localStorage.getItem('session-dockview-layout-v4')).toBeTruthy();
   });
 
   test('toggleBottomPanel collapses and restores height', () => {

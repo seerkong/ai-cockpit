@@ -2,7 +2,7 @@ import { markRaw, ref } from 'vue';
 import type { DockviewApi, SerializedDockview } from 'dockview-core';
 import type { DockviewReadyEvent } from 'dockview-vue';
 
-const LAYOUT_STORAGE_KEY = 'session-dockview-layout-v3';
+const LAYOUT_STORAGE_KEY = 'session-dockview-layout-v4';
 
 export function useDockviewLayout() {
   const dockApi = ref<DockviewApi | null>(null);
@@ -77,7 +77,7 @@ export function useDockviewLayout() {
       initialHeight: centerTopHeight,
     });
 
-    // Right panel tab order: Todo -> Context -> Review -> Files
+    // Right panel tab order: Todo -> Context -> Review -> Files -> Codument
     api.addPanel({
       id: 'right-todo',
       component: 'right-todo',
@@ -104,6 +104,13 @@ export function useDockviewLayout() {
       id: 'right-files',
       component: 'right-files',
       title: 'Files',
+      position: { referencePanel: 'right-todo', direction: 'within' },
+    });
+
+    api.addPanel({
+      id: 'right-codument',
+      component: 'right-codument',
+      title: 'Codument',
       position: { referencePanel: 'right-todo', direction: 'within' },
     });
 

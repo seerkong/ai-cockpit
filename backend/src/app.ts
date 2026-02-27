@@ -1,6 +1,7 @@
 import type { OpenCodeServerInfo } from './opencode-server'
 import type { WorkspaceProvider } from './providers/types'
 import type { SqliteStore } from './storage/sqlite'
+import { listCodumentTracks, loadCodumentTrackTree } from './codument'
 
 export type WorkspaceRecord = {
   id: string
@@ -660,6 +661,40 @@ export function createFetchHandler(registry: WorkspaceRegistryLike, store?: Sqli
       if (wsOrResp instanceof Response) return wsOrResp
       const bindings = registry.getSessionBindings ? registry.getSessionBindings(workspaceId) : {}
       return jsonResponse({ bindings })
+    }
+
+    const codumentTracksMatch = url.pathname.match(/^\/api\/v1\/workspaces\/([^/]+)\/codument\/tracks$/)
+    if (codumentTracksMatch && req.method === 'GET') {
+      const workspaceId = codumentTracksMatch[1] ?? ''
+      const wsOrResp = getWorkspaceOrResponse(registry, req, workspaceId)
+      if (wsOrResp instanceof Response) return wsOrResp
+
+      try {
+        const { tracks, defaultTrackId } = await listCodumentTracks(wsOrResp.directory)
+        return jsonResponse({ tracks, defaultTrackId })
+      } catch (err) {
+        return jsonResponse({ error: err instanceof Error ? err.message : 'failed to load codument tracks' }, 500)
+      }
+    }
+
+    const codumentTrackTreeMatch = url.pathname.match(/^\/api\/v1\/workspaces\/([^/]+)\/codument\/tracks\/([^/]+)\/tree$/)
+    if (codumentTrackTreeMatch && req.method === 'GET') {
+      const workspaceId = codumentTrackTreeMatch[1] ?? ''
+      const rawTrackId = codumentTrackTreeMatch[2] ?? ''
+      const trackId = decodeURIComponent(rawTrackId)
+      if (!trackId || trackId.includes('/') || trackId.includes('\\') || trackId.includes('..')) {
+        return jsonResponse({ error: 'invalid track id' }, 400)
+      }
+
+      const wsOrResp = getWorkspaceOrResponse(registry, req, workspaceId)
+      if (wsOrResp instanceof Response) return wsOrResp
+
+      try {
+        const tree = await loadCodumentTrackTree(wsOrResp.directory, trackId)
+        return jsonResponse({ tree })
+      } catch (err) {
+        return jsonResponse({ error: err instanceof Error ? err.message : 'failed to load codument track tree' }, 500)
+      }
     }
 
     const bindMatch = url.pathname.match(/^\/api\/v1\/workspaces\/([^/]+)\/sessions\/([^/]+)\/bind$/)

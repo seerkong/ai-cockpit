@@ -188,6 +188,78 @@
       </div>
     </div>
 
+    <!-- Codument Tab -->
+    <div v-else-if="mode === 'codument'" class="panel-content">
+      <div class="codument-toolbar">
+        <strong>Codument Track</strong>
+        <button class="secondary" :disabled="!activeConnectionId" @click="$emit('refresh-codument-tracks')">Refresh</button>
+      </div>
+
+      <label class="toggle">
+        <input type="checkbox" :checked="codumentAutoRefreshEnabled" :disabled="!activeConnectionId" @change="$emit('update:codumentAutoRefreshEnabled', ($event.target as HTMLInputElement).checked)" />
+        <span>Enable 15s auto refresh</span>
+      </label>
+
+      <div v-if="!activeConnectionId" class="muted">Select a connection first.</div>
+      <div v-else-if="codumentTracksLoading" class="muted">Loading tracks…</div>
+      <div v-else-if="codumentTracksError" class="muted">{{ codumentTracksError }}</div>
+      <div v-else-if="!codumentTracks.length" class="muted">No codument tracks.</div>
+      <div v-else>
+        <div class="codument-toolbar" style="margin-top: 0;">
+          <select
+            class="codument-select"
+            :value="selectedCodumentTrackId"
+            @change="$emit('update:codumentTrackId', ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="" disabled>Select a track…</option>
+            <option
+              v-for="t in codumentTracks"
+              :key="t.trackId"
+              :value="t.trackId"
+            >{{ t.statusSymbol }} {{ t.trackId }} · {{ t.trackName }}</option>
+          </select>
+          <button
+            :class="boundCodumentTrackId === selectedCodumentTrackId ? '' : 'secondary'"
+            :disabled="!activeConnectionId || !selectedCodumentTrackId || boundCodumentTrackId === selectedCodumentTrackId"
+            @click="$emit('bind-codument-track')"
+          >{{ boundCodumentTrackId === selectedCodumentTrackId ? 'Bound' : 'Bind' }}</button>
+        </div>
+      </div>
+
+      <!-- Track tree -->
+      <div v-if="codumentTrackTreeLoading" class="muted" style="margin-top: 8px;">Loading task tree…</div>
+      <div v-else-if="codumentTrackTreeError" class="muted" style="margin-top: 8px;">{{ codumentTrackTreeError }}</div>
+      <div v-else-if="!codumentTrackTree" class="muted" style="margin-top: 8px;">No task tree.</div>
+      <div v-else class="codument-tree">
+        <div class="codument-tree-header">
+          <span class="codument-status-symbol">{{ codumentTrackTree.statusSymbol }}</span>
+          <strong>{{ codumentTrackTree.trackName }}</strong>
+          <span class="muted">{{ codumentTrackTree.status }}</span>
+        </div>
+        <div v-for="phase in codumentTrackTree.phases" :key="phase.id" class="codument-node codument-node--phase">
+          <div class="codument-node-label">
+            <span class="codument-status-symbol">{{ phase.statusSymbol }}</span>
+            <span>{{ phase.name }}</span>
+            <span class="muted">{{ phase.status }}</span>
+          </div>
+          <div v-for="task in phase.tasks" :key="task.id" class="codument-node codument-node--task">
+            <div class="codument-node-label">
+              <span class="codument-status-symbol">{{ task.statusSymbol }}</span>
+              <span>{{ task.name }}</span>
+              <span class="muted">{{ task.status }}</span>
+            </div>
+            <div v-for="sub in task.subtasks" :key="sub.id" class="codument-node codument-node--subtask">
+              <div class="codument-node-label">
+                <span class="codument-status-symbol">{{ sub.statusSymbol }}</span>
+                <span>{{ sub.name }}</span>
+                <span class="muted">{{ sub.status }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Files Tab -->
     <div v-else class="panel-content">
       <div class="sidebar-section">
@@ -265,7 +337,7 @@ type SearchResult = {
 };
 
 export interface Props {
-  mode: 'review' | 'context' | 'files' | 'todo';
+  mode: 'review' | 'context' | 'files' | 'todo' | 'codument';
   sessionId: string;
   capabilities: Capabilities | null;
   // Review
@@ -292,6 +364,40 @@ export interface Props {
   todos: TodoItem[];
   todosLoading: boolean;
   todosError: string | null;
+  // Codument
+  activeConnectionId: string;
+  codumentAutoRefreshEnabled: boolean;
+  codumentTracks: Array<{ trackId: string; trackName: string; status: string; statusSymbol: '[x]' | '[~]' | '[ ]' }>;
+  codumentTracksLoading: boolean;
+  codumentTracksError: string | null;
+  selectedCodumentTrackId: string;
+  boundCodumentTrackId: string;
+  codumentTrackTree: null | {
+    trackId: string;
+    trackName: string;
+    status: string;
+    statusSymbol: '[x]' | '[~]' | '[ ]';
+    phases: Array<{
+      id: string;
+      name: string;
+      status: string;
+      statusSymbol: '[x]' | '[~]' | '[ ]';
+      tasks: Array<{
+        id: string;
+        name: string;
+        status: string;
+        statusSymbol: '[x]' | '[~]' | '[ ]';
+        subtasks: Array<{
+          id: string;
+          name: string;
+          status: string;
+          statusSymbol: '[x]' | '[~]' | '[ ]';
+        }>;
+      }>;
+    }>;
+  };
+  codumentTrackTreeLoading: boolean;
+  codumentTrackTreeError: string | null;
   // Files
   fileTree: FileNode[];
   fileContent: string;
@@ -324,6 +430,16 @@ const props = withDefaults(defineProps<Props>(), {
   todos: () => [],
   todosLoading: false,
   todosError: null,
+  activeConnectionId: '',
+  codumentAutoRefreshEnabled: true,
+  codumentTracks: () => [],
+  codumentTracksLoading: false,
+  codumentTracksError: null,
+  selectedCodumentTrackId: '',
+  boundCodumentTrackId: '',
+  codumentTrackTree: null,
+  codumentTrackTreeLoading: false,
+  codumentTrackTreeError: null,
   fileTree: () => [],
   fileContent: '',
   searchPattern: '',
@@ -345,6 +461,10 @@ defineEmits<{
   'reply-question': [question: QuestionRequest];
   'reject-question': [question: QuestionRequest];
   'refresh-todos': [];
+  'refresh-codument-tracks': [];
+  'update:codumentTrackId': [trackId: string];
+  'update:codumentAutoRefreshEnabled': [value: boolean];
+  'bind-codument-track': [];
   'load-file': [path: string];
   'load-directory': [path: string];
   'update:searchPattern': [pattern: string];
@@ -813,6 +933,89 @@ function getTodoContent(todo: TodoItem): string {
 .muted {
   color: var(--muted);
   font-size: 12px;
+}
+
+/* Codument */
+.codument-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.codument-select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.codument-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.codument-tree {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.codument-tree-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+
+.codument-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.codument-node-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.codument-node-label:hover {
+  background: rgba(56, 189, 248, 0.04);
+}
+
+.codument-node--phase > .codument-node-label {
+  padding-left: 12px;
+  font-weight: 600;
+}
+
+.codument-node--task > .codument-node-label {
+  padding-left: 24px;
+}
+
+.codument-node--subtask > .codument-node-label {
+  padding-left: 36px;
+  color: var(--muted);
+}
+
+.codument-status-symbol {
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 button {

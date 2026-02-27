@@ -28,6 +28,8 @@ export type ConnectedWorkspace = {
   token: string;
   /** Last session the user viewed for this workspace. */
   lastSessionId?: string;
+  /** Last bound codument track id for this workspace. */
+  lastCodumentTrackId?: string;
   /** Human-friendly connection label inside same directory group. */
   connectionLabel?: string;
   /** How this runtime connection was created. */
@@ -110,6 +112,11 @@ export const useWorkspacesStore = defineStore('workspaces', {
         return state.byId[workspaceId]?.lastSessionId ?? '';
       };
     },
+    codumentTrackFor: (state) => {
+      return (workspaceId: string): string => {
+        return state.byId[workspaceId]?.lastCodumentTrackId ?? '';
+      };
+    },
   },
   actions: {
     hydrate() {
@@ -171,6 +178,13 @@ export const useWorkspacesStore = defineStore('workspaces', {
       const ws = this.byId[workspaceId];
       if (!ws) return;
       ws.lastSessionId = sessionId;
+      this.byId[workspaceId] = ws;
+      this.persist();
+    },
+    setLastCodumentTrack(workspaceId: string, trackId: string) {
+      const ws = this.byId[workspaceId];
+      if (!ws) return;
+      ws.lastCodumentTrackId = trackId;
       this.byId[workspaceId] = ws;
       this.persist();
     },
