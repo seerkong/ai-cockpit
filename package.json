@@ -3,17 +3,25 @@
   "private": true,
   "workspaces": [
     "backend",
+    "backend/packages/*",
     "frontend",
-    "shared"
+    "frontend/packages/*",
+    "shared",
+    "shared/packages/*"
   ],
   "scripts": {
-    "postinstall": "bun run --filter frontend postinstall",
-    "dev:backend": "bun run --filter backend dev",
-    "dev:backend2": "PORT=3101 bun run --filter backend dev",
-    "dev:frontend": "bun run --filter frontend dev",
-    "dev:frontend2": "VITE_BACKEND_PORT=3101 bun run --filter frontend dev -- --port 3100",
-    "test:backend": "bun run --filter backend test",
-    "test:frontend": "bun run --filter frontend test",
+    "postinstall": "bun run --cwd frontend postinstall",
+    "dev": "concurrently \"bun run dev:backend:elysia\" \"bun run dev:frontend:vue\"",
+    "dev:backend:elysia": "bun run --cwd backend dev:elysia",
+    "dev:frontend:vue": "bun run --cwd frontend dev:vue",
+    "dev:backend": "bun run --cwd backend dev",
+    "dev:backend2": "PORT=3101 bun run --cwd backend dev",
+    "dev:frontend": "bun run --cwd frontend dev",
+    "dev:frontend2": "VITE_BACKEND_PORT=3101 bun run --cwd frontend dev -- --port 3100",
+    "build:backend:elysia": "bun run --cwd backend build:elysia",
+    "build:frontend:vue": "bun run --cwd frontend build:vue",
+    "test:backend": "bun run --cwd backend test",
+    "test:frontend": "bun run --cwd frontend test",
     "test:e2e": "playwright test -c playwright.config.ts",
     "test": "bun run test:backend && bun run test:frontend && bun run test:e2e"
   },

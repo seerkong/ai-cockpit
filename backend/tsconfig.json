@@ -10,9 +10,15 @@
     "outDir": "./dist",
     "declaration": true,
     "paths": {
-      "shared": ["../shared"]
+      "shared": ["../shared"],
+      "@backend/core": ["./packages/core/src"],
+      "@backend/organ": ["./packages/organ/src"],
+      "@backend/composer": ["./packages/composer/src"]
     }
   },
-  "include": ["src/**/*", "../shared/**/*"],
-  "exclude": ["node_modules", "dist", "src/legacy/**/*"]
+  "include": [
+    "packages/*/src/**/*",
+    "../shared/**/*"
+  ],
+  "exclude": ["node_modules", "dist"]
 }

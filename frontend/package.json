@@ -1,13 +1,18 @@
 {
   "name": "frontend",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
+  "workspaces": ["packages/*", "../shared", "../shared/packages/*"],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "postinstall": "patch-package",
-    "test": "bun test"
+    "dev": "bun run dev:vue",
+    "dev:vue": "bun run --cwd packages/vue-shell dev",
+    "build": "bun run build:vue",
+    "build:vue": "bun run --cwd packages/vue-shell build",
+    "preview": "bun run preview:vue",
+    "preview:vue": "bun run --cwd packages/vue-shell preview",
+    "test": "bun run --cwd packages/vue-shell test",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "dockview-core": "^4.13.1",

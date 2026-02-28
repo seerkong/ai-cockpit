@@ -1,0 +1,15 @@
+{
+  "name": "@frontend/organ",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@frontend/core": "workspace:*",
+    "shared": "workspace:*",
+    "vue": "^3.5.27",
+    "pinia": "^3.0.3",
+    "dockview-core": "^4.13.1",
+    "dockview-vue": "^4.13.1"
+  }
+}

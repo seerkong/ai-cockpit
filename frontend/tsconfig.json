@@ -13,9 +13,18 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@frontend/core": ["./packages/core/src/index.ts"],
+      "@frontend/organ": ["./packages/organ/src/index.ts"],
+      "@frontend/composer": ["./packages/composer/src/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue"],
-  "exclude": ["src/**/*.test.ts"],
+  "include": [
+    "packages/*/src/**/*.d.ts",
+    "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.vue"
+  ],
+  "exclude": ["packages/*/src/**/*.test.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

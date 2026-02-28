@@ -1,6 +1,15 @@
 {
   "name": "shared",
   "version": "1.0.0",
+  "private": true,
   "main": "index.ts",
-  "types": "index.ts"
+  "types": "index.ts",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "node -e \"process.exit(0)\"",
+    "dev": "node -e \"process.exit(0)\"",
+    "test": "node -e \"process.exit(0)\""
+  }
 }

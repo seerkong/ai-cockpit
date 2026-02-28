@@ -1,5 +1,19 @@
 // Shared types between frontend and backend
 
+export type ProviderCapabilities = {
+  chat: boolean
+  events: boolean
+  reviewDiffs: boolean
+  inlineComments: boolean
+  fileRead: boolean
+  fileSearch: boolean
+  commands: boolean
+  agents: boolean
+  models: boolean
+  permissions: boolean
+  questions: boolean
+}
+
 /**
  * Message from client to server
  */
