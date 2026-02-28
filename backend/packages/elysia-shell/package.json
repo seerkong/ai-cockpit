@@ -8,7 +8,7 @@
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "build": "bun build --target bun src/index.ts --outdir dist",
-    "test": "bun test ../core/src ../organ/src ../composer/src src"
+    "test": "bun test ../core/tests ../organ/tests ../composer/tests tests"
   },
   "dependencies": {
     "@backend/core": "workspace:*",

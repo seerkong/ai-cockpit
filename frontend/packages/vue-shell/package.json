@@ -6,7 +6,7 @@
     "dev": "vite ../../ --config ../../vite.config.ts",
     "build": "tsc -p ../../tsconfig.json && vite build ../../ --config ../../vite.config.ts",
     "preview": "vite preview ../../ --config ../../vite.config.ts",
-    "test": "bun test ../../packages"
+    "test": "bun test ../../packages/core/tests ../../packages/organ/tests ../../packages/composer/tests ../../packages/vue-shell/tests"
   },
   "dependencies": {
     "@frontend/core": "workspace:*",

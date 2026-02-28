@@ -24,7 +24,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'bun -C backend run start',
+      command: 'bun run --cwd backend start',
       url: 'http://127.0.0.1:3001/api/health',
       reuseExistingServer: true,
       timeout: 120_000,
