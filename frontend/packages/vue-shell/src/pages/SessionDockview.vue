@@ -6,25 +6,30 @@ import { DockviewVue } from 'dockview-vue';
 import { useWorkspaceConfigsStore } from '@frontend/organ';
 import { useWorkspaceSelectionStore } from '@frontend/organ';
 import { useWorkspacesStore } from '@frontend/organ';
+import { useWorkSettingsStore } from '@frontend/organ';
 import { useNotifications } from '@frontend/organ';
 import { useDockviewLayout } from '@frontend/organ';
 import { useComposerMetadata } from '@frontend/organ';
 import { useConnections } from '@frontend/organ';
 import { useSessions } from '@frontend/organ';
+import { createStalledAutoRecover } from '@frontend/organ';
 import { sessionTitleFor } from '@frontend/core';
 import { newConnectionRequested } from '@frontend/organ';
 import { computeContextUsage, computeSessionSummary } from '@frontend/composer';
-import { normalizePermissionList, permissionId, permissionSessionId, type PermissionRequest } from '@frontend/core';
-import { normalizeQuestionList, questionId, type QuestionRequest } from '@frontend/core';
+import { normalizePermissionList, permissionId, permissionSessionId, hasRunningToolPart, type PermissionRequest } from '@frontend/core';
+import { normalizeQuestionList, questionId, questionSessionId, type QuestionRequest } from '@frontend/core';
 import { SessionStatusBar } from '@frontend/composer';
+import { buildWorkspaceRealtimeWsUrl, createRealtimeWsClient, type RealtimeStateV1, type RealtimeWsClient } from '@frontend/organ';
 
 const route = useRoute();
 const router = useRouter();
 const configsStore = useWorkspaceConfigsStore();
 const selectionStore = useWorkspaceSelectionStore();
 const workspacesStore = useWorkspacesStore();
+const workSettingsStore = useWorkSettingsStore();
 configsStore.hydrate();
 workspacesStore.hydrate();
+workSettingsStore.hydrate();
 
 // Dockview layout
 const { dockApi, onReady, bottomPanelOpen, toggleBottomPanel } = useDockviewLayout();
@@ -32,6 +37,7 @@ const { dockApi, onReady, bottomPanelOpen, toggleBottomPanel } = useDockviewLayo
 // Core state
 const workspaceId = computed(() => selectionStore.selectedWorkspaceId);
 const connId = computed(() => String(route.query.connId || ''));
+const routeSessionId = computed(() => String(route.query.sessionId || ''));
 const token = ref<string | null>(null);
 
 // Session id (writable computed bound to store)
@@ -50,6 +56,10 @@ let _stopMessagePolling: () => void = () => {};
 let _loadSessionForConnection: (cid: string) => Promise<void>;
 const sessionsProxy = ref<{ id: string; boundConnectionId?: string }[]>([]);
 const sessionManagerConnectionIdProxy = ref('');
+
+// Realtime (WS) state is used to disable polling/refresh.
+// It is also used to drive message rendering in mocked e2e runs.
+const realtimeActive = ref(false);
 
 // Composer metadata (called first; capabilities ref is the single source of truth)
 const {
@@ -88,17 +98,154 @@ const {
   sessions, sessionWorking, sessionError, sessionShared, sessionShareUrl,
   sessionActionWorking, sessionActionStatus, sessionManager,
   messages, messagesHasOlder, messagesLoadingOlder,
-  stopMessagePolling, loadSessionForConnection, loadSessionsForConnection,
+  stopMessagePolling, refreshMessages, loadSessionForConnection, loadSessionsForConnection,
   handleSessionSelection, handleCreateSession,
   handleForkSession, handleShareSession, handleUnshareSession,
   handleSummarizeSession, handleRevertSession, handleUnrevertSession,
   loadOlderMessages, handleSendPrompt, handleAbort,
+  messagesFingerprint, messagesLastProgressAtMs, messagesRefreshOk,
 } = useSessions({
   activeConnectionId, connected, sessionId,
   apiFetchForConnection, resolveExecutionConnectionId, syncConnectionContext,
   pushNotification, refreshComposerMetadata, workspacesStore,
   router: router as unknown as { replace: (to: { name: string; query: Record<string, unknown> }) => void },
   route: route as unknown as { query: Record<string, unknown> },
+  realtimeActive,
+});
+
+// Realtime session status (WS)
+const realtimeState = ref<RealtimeStateV1 | null>(null);
+let realtimeClient: RealtimeWsClient | null = null;
+let eventSource: EventSource | null = null;
+
+const sessionRuntimeStatus = computed(() => {
+  const sid = sessionId.value;
+  if (!sid) return 'idle';
+  if (!realtimeState.value) return 'unknown';
+  const st = realtimeState.value?.sessions?.byId?.[sid]?.status;
+  return typeof st === 'string' ? st : 'unknown';
+});
+
+function stopRealtime() {
+  try { realtimeClient?.stop(); } catch { /* ignore */ }
+  realtimeClient = null;
+  realtimeState.value = null;
+  realtimeActive.value = false;
+  try { eventSource?.close(); } catch { /* ignore */ }
+  eventSource = null;
+}
+
+function startRealtime() {
+  stopRealtime();
+  const cid = activeConnectionId.value;
+  if (!cid) return;
+  const t = workspacesStore.tokenFor(cid);
+  if (!t) return;
+  const url = buildWorkspaceRealtimeWsUrl({ workspaceId: cid, token: t });
+  realtimeClient = createRealtimeWsClient({
+    url,
+    sessionIds: sessionId.value ? [sessionId.value] : [],
+    callbacks: {
+      onConnected: () => { realtimeActive.value = true; },
+      onDisconnected: () => { realtimeActive.value = false; },
+      onState: (s) => { realtimeState.value = s; },
+      onFallbackToSse: (reason) => {
+        // Minimal fallback for environments that block WS upgrades.
+        // Used by mock e2e to ensure EventSource is constructed.
+        realtimeActive.value = false;
+        try { eventSource?.close(); } catch { /* ignore */ }
+        eventSource = null;
+        try {
+          const esUrl = `/api/v1/workspaces/${encodeURIComponent(cid)}/events?token=${encodeURIComponent(t)}`;
+          eventSource = new EventSource(esUrl);
+        } catch {
+          // ignore
+        }
+        pushNotification('error', `realtime: ${reason}`);
+      },
+      onError: (m) => { pushNotification('error', `realtime: ${m}`); },
+    },
+  });
+  realtimeClient.start();
+}
+
+function buildMessagesFromRealtime(state: RealtimeStateV1, sid: string) {
+  const ids = state.messages?.idsBySessionId?.[sid] ?? [];
+  const out: typeof messages.value = [];
+  for (const mid of ids) {
+    const info = state.messages?.byId?.[mid];
+    if (!info) continue;
+
+    // Preserve any extra fields we learned from REST hydration (cost/agent/etc).
+    const existing = messages.value.find((m: any) => m?.info?.id === mid) as any;
+    const baseInfo = existing && existing.info && typeof existing.info === 'object' ? existing.info : {};
+
+    const partIds = state.parts?.idsByMessageId?.[mid] ?? [];
+    const parts = partIds
+      .map((pid) => state.parts?.byId?.[pid])
+      .filter(Boolean)
+      .map((p) => ({
+        id: p!.id,
+        type: p!.type,
+        text: p!.text,
+        tool: (p as any).tool,
+        callID: (p as any).callID,
+        messageID: (p as any).messageID,
+        sessionID: (p as any).sessionID,
+        state: (p as any).state,
+      }));
+    out.push({ info: { ...baseInfo, ...info }, parts } as any);
+  }
+  return out;
+}
+
+// When realtime state is present, use it as the message source of truth.
+watch([realtimeState, sessionId], ([st, sid]) => {
+  if (!st || !sid) return;
+  messages.value = buildMessagesFromRealtime(st, sid);
+}, { immediate: false });
+
+// Keep UI "working" status aligned with realtime session status.
+watch(sessionRuntimeStatus, (status) => {
+  if (status === 'busy' || status === 'retry') {
+    sessionWorking.value = true;
+    return;
+  }
+  if (status === 'idle' || status === 'error') {
+    sessionWorking.value = false;
+  }
+});
+
+// When a realtime stream transitions to idle, rehydrate once via REST.
+watch(sessionRuntimeStatus, async (next, prev) => {
+  if (!realtimeActive.value) return;
+  if (prev === next) return;
+  if (next !== 'idle') return;
+  // Only rehydrate after actual execution completes.
+  // Avoid clobbering realtime-patched content on the initial snapshot.
+  if (prev !== 'busy' && prev !== 'retry') return;
+  const cid = activeConnectionId.value;
+  const sid = sessionId.value;
+  if (!cid || !sid) return;
+  try {
+    await refreshMessages(cid, sid, true);
+  } catch {
+    // ignore
+  }
+});
+
+watch(activeConnectionId, () => {
+  startRealtime();
+});
+
+watch(sessionId, (sid) => {
+  if (!sid) return;
+  realtimeClient?.setSessionIds([sid]);
+});
+
+onBeforeUnmount(() => {
+  stopRealtime();
+  stalledAutoRecoverController.stop();
 });
 
 const sessionTitle = computed(() => sessionTitleFor(sessions.value, sessionId.value));
@@ -130,6 +277,67 @@ const questions = ref<QuestionRequest[]>([]);
 const questionsLoading = ref(false);
 const questionsError = ref<string | null>(null);
 const questionAnswerDrafts = reactive<Record<string, string>>({});
+
+// /work settings
+const stalledAutoRecoverEnabled = computed(() => workSettingsStore.stalledAutoRecoverEnabled);
+const stalledAutoRecoverTimeoutMinutes = computed(() => workSettingsStore.stalledAutoRecoverTimeoutMinutes);
+
+const hasPendingPermissionForSession = computed(() => {
+  const sid = sessionId.value;
+  if (!sid) return false;
+  return permissions.value.some((p) => permissionSessionId(p) === sid);
+});
+
+const hasPendingQuestionForSession = computed(() => {
+  const sid = sessionId.value;
+  if (!sid) return false;
+  return questions.value.some((q) => questionSessionId(q) === sid);
+});
+
+const hasLongRunningTool = computed(() => hasRunningToolPart(messages.value));
+
+async function forceAbortSession(cid: string, sid: string) {
+  const resp = await apiFetchForConnection(cid, `/api/v1/workspaces/${cid}/sessions/${encodeURIComponent(sid)}/abort`, { method: 'POST' });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(text || `Failed to abort session (${resp.status})`);
+  }
+}
+
+const stalledAutoRecoverController = createStalledAutoRecover({
+  enabled: () => stalledAutoRecoverEnabled.value,
+  timeoutMinutes: () => stalledAutoRecoverTimeoutMinutes.value,
+  getConnectionId: () => resolveExecutionConnectionId(),
+  getSessionId: () => sessionId.value,
+  getRuntimeStatus: () => sessionRuntimeStatus.value,
+  getLastProgressAtMs: () => messagesLastProgressAtMs.value,
+  getMessagesFingerprint: () => messagesFingerprint.value,
+  getMessagesRefreshOk: () => messagesRefreshOk.value,
+  pause: {
+    pendingPermission: () => hasPendingPermissionForSession.value,
+    pendingQuestion: () => hasPendingQuestionForSession.value,
+    longRunningTool: () => hasLongRunningTool.value,
+  },
+  actions: {
+    refreshMessages: async (cid, sid) => { await refreshMessages(cid, sid, true); },
+    abortSession: async (cid, sid) => { await forceAbortSession(cid, sid); },
+    sendPrompt: async (prompt) => { await handleSendPrompt({ prompt }); },
+    notify: (kind, message) => { pushNotification(kind, message); },
+  },
+});
+
+watch(stalledAutoRecoverEnabled, (enabled) => {
+  if (enabled) stalledAutoRecoverController.start();
+  else stalledAutoRecoverController.stop();
+}, { immediate: true });
+
+function handleUpdateStalledAutoRecoverEnabled(value: boolean) {
+  workSettingsStore.setStalledAutoRecoverEnabled(value);
+}
+
+function handleUpdateStalledAutoRecoverTimeoutMinutes(value: number) {
+  workSettingsStore.setStalledAutoRecoverTimeoutMinutes(value);
+}
 
 // Todos state
 type TodoItem = { id?: string; status?: string; content?: string; text?: string };
@@ -297,11 +505,38 @@ function handleOpenSessionManager() {
 function closeContextMenus() { connectionContextMenu.open = false; }
 
 async function handleLoadOlderMessages() { await loadOlderMessages(); }
-
-function handleRefreshDiffs() { console.log('Refresh diffs'); }
 function handleSelectDiff(index: number) { selectedDiffIndex.value = index; }
 function handleToggleDiffExpanded() { diffExpanded.value = !diffExpanded.value; }
 function handleOpenDiffFile(file: string) { console.log('Open diff file:', file); }
+
+async function handleRefreshDiffs() {
+  const cid = activeConnectionId.value;
+  const sid = sessionId.value;
+  if (!cid || !sid) return;
+  diffsLoading.value = true;
+  diffsError.value = null;
+  try {
+    const resp = await apiFetchForConnection(cid, `/api/v1/workspaces/${cid}/sessions/${encodeURIComponent(sid)}/diffs`);
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(text || `Failed to load diffs (${resp.status})`);
+    }
+    const payload = await resp.json().catch(() => []);
+    // Backend returns either a list or { diffs: [...] } depending on provider.
+    const list = Array.isArray(payload)
+      ? payload
+      : (payload && typeof payload === 'object' && Array.isArray((payload as any).diffs))
+        ? (payload as any).diffs
+        : [];
+    diffs.value = list as FileDiff[];
+    selectedDiffIndex.value = 0;
+  } catch (err) {
+    diffsError.value = err instanceof Error ? err.message : 'Failed to load diffs.';
+    diffs.value = [];
+  } finally {
+    diffsLoading.value = false;
+  }
+}
 
 async function handleRefreshPermissions() {
   const cid = activeConnectionId.value;
@@ -673,6 +908,11 @@ provide('boundCodumentTrackId', boundCodumentTrackId);
 provide('codumentTrackTree', codumentTrackTree);
 provide('codumentTrackTreeLoading', codumentTrackTreeLoading);
 provide('codumentTrackTreeError', codumentTrackTreeError);
+
+provide('stalledAutoRecoverEnabled', stalledAutoRecoverEnabled);
+provide('stalledAutoRecoverTimeoutMinutes', stalledAutoRecoverTimeoutMinutes);
+provide('onUpdateStalledAutoRecoverEnabled', handleUpdateStalledAutoRecoverEnabled);
+provide('onUpdateStalledAutoRecoverTimeoutMinutes', handleUpdateStalledAutoRecoverTimeoutMinutes);
 provide('onRefreshCodumentTracks', handleRefreshCodumentTracks);
 provide('onUpdateCodumentTrackId', handleUpdateCodumentTrackId);
 provide('onBindCodumentTrack', handleBindCodumentTrack);
@@ -691,6 +931,26 @@ onMounted(async () => {
   await loadWorkspaceData();
   if (connId.value) { activeConnectionId.value = connId.value; syncConnectionContext(connId.value); await refreshConnections(connId.value); await loadSessionForConnection(connId.value); }
   else if (activeConnectionId.value) { syncConnectionContext(activeConnectionId.value); await loadSessionForConnection(activeConnectionId.value); }
+
+  // Legacy redirect support: allow /work?connId=...&sessionId=... to open a specific session.
+  if (routeSessionId.value && activeConnectionId.value) {
+    try {
+      await handleSessionSelection(routeSessionId.value);
+    } catch {
+      // Errors surface via sessionManager/sessionError.
+    }
+  }
+});
+
+watch(routeSessionId, async (sid) => {
+  if (!sid) return;
+  if (!activeConnectionId.value) return;
+  if (sid === sessionId.value) return;
+  try {
+    await handleSessionSelection(sid);
+  } catch {
+    // ignore
+  }
 });
 
 watch(workspaceId, async (newId, oldId) => {

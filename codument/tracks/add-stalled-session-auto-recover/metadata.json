@@ -1,0 +1,9 @@
+{
+  "track_id": "add-stalled-session-auto-recover",
+  "type": "feature",
+  "status": "in_progress",
+  "commit_mode": "manual",
+  "created_at": "2026-03-01T10:52:34Z",
+  "updated_at": "2026-03-01T11:47:26Z",
+  "description": "When a connection/session stays in progress but no new message activity for >N minutes (default 5), auto send abort then send a continue prompt (\"请继续\"). Expose as a right panel configurable setting (enabled by default, interval adjustable) and consolidate similar toggles into a unified Settings tab."
+}

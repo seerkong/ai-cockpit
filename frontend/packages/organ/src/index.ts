@@ -5,6 +5,7 @@ export * from '@frontend/core';
 export { useWorkspacesStore, type Workspace, type ConnectedWorkspace } from './stores/workspaces';
 export { useWorkspaceConfigsStore, type WorkspaceConfig } from './stores/workspace-configs';
 export { useWorkspaceSelectionStore } from './stores/workspace-selection';
+export { useWorkSettingsStore } from './stores/work-settings';
 
 // Composables
 export { useChat, type UseChatDeps } from './composables/useChat';
@@ -52,3 +53,11 @@ export {
   type ConnectionStatusBadgeKind,
   type ConnectionStatusBadge,
 } from './lib/connection-status-badge';
+
+export {
+  createStalledAutoRecover,
+  type StalledAutoRecoverController,
+  type CreateStalledAutoRecoverDeps,
+  type StalledAutoRecoverRuntimeStatus,
+  type StalledAutoRecoverClock,
+} from './lib/stalled-auto-recover';

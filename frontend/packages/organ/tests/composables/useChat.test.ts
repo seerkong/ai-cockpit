@@ -107,6 +107,55 @@ describe('useChat', () => {
       expect(chat.refreshMessages('c1', 's1')).rejects.toThrow('Server error');
     });
 
+    test('updates fingerprint and lastProgressAtMs only when fingerprint changes', async () => {
+      const origNow = Date.now;
+      try {
+        const msgs1 = makeMessages(['m1']);
+        const msgs2 = makeMessages(['m1']);
+        const msgs3 = makeMessages(['m1', 'm2']);
+
+        let call = 0;
+        const deps = makeChatDeps({
+          apiFetchForConnection: mock(() => {
+            call += 1;
+            const payload = call === 1 ? msgs1 : call === 2 ? msgs2 : msgs3;
+            return Promise.resolve(mockFetchResponse(payload));
+          }),
+        });
+
+        const chat = useChat(deps);
+
+        Date.now = () => 1000;
+        await chat.refreshMessages('c1', 's1');
+        const firstFp = chat.messagesFingerprint.value;
+        const firstAt = chat.messagesLastProgressAtMs.value;
+        expect(firstFp).toBeTruthy();
+        expect(firstAt).toBe(1000);
+
+        Date.now = () => 2000;
+        await chat.refreshMessages('c1', 's1');
+        expect(chat.messagesFingerprint.value).toBe(firstFp);
+        expect(chat.messagesLastProgressAtMs.value).toBe(firstAt);
+
+        Date.now = () => 3000;
+        await chat.refreshMessages('c1', 's1');
+        expect(chat.messagesFingerprint.value).not.toBe(firstFp);
+        expect(chat.messagesLastProgressAtMs.value).toBe(3000);
+      } finally {
+        Date.now = origNow;
+      }
+    });
+
+    test('sets messagesRefreshOk false on refresh error', async () => {
+      const deps = makeChatDeps({
+        apiFetchForConnection: mock(() => Promise.resolve(mockFetchResponse('Server error', false, 500))),
+      });
+      const chat = useChat(deps);
+
+      await expect(chat.refreshMessages('c1', 's1')).rejects.toThrow();
+      expect(chat.messagesRefreshOk.value).toBe(false);
+    });
+
     test('no-ops when connectionId is empty', async () => {
       const fetchMock = mock(() => Promise.resolve(mockFetchResponse([])));
       const deps = makeChatDeps({ apiFetchForConnection: fetchMock });

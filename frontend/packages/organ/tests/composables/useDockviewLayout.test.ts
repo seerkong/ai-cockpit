@@ -32,9 +32,6 @@ function createDockApiStub() {
   const api = {
     width: 1200,
     height: 900,
-    addPanel(config: { id: string }) {
-      addPanelCalls.push(config.id);
-    },
     getPanel(id: string) {
       return {
         api: {
@@ -49,6 +46,9 @@ function createDockApiStub() {
           },
         },
       };
+    },
+    addPanel(config: { id: string }) {
+      addPanelCalls.push(config.id);
     },
     toJSON() {
       return { panels: ['connections'] };
@@ -117,6 +117,7 @@ describe('useDockviewLayout', () => {
       'connections',
       'chat',
       'right-todo',
+      'right-settings',
       'right-context',
       'right-review',
       'right-files',

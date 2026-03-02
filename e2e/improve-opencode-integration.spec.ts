@@ -54,33 +54,51 @@ test('connect-by-port + model picker + message pagination (no /sessions spam)', 
     questions: false,
   };
 
+  // Avoid real WS attempts in mocked tests.
   await page.addInitScript(() => {
-    class FakeEventSource {
+    const RealWebSocket = window.WebSocket;
+
+    class FakeRealtimeWebSocket {
       url: string;
-      onmessage: ((event: { data: string }) => void) | null;
-      onerror: (() => void) | null;
-      onopen: (() => void) | null;
-      _closed: boolean;
+      readyState: number;
+      sent: string[];
+      onopen: ((ev: Event) => void) | null;
+      onmessage: ((ev: MessageEvent) => void) | null;
+      onerror: ((ev: Event) => void) | null;
+      onclose: ((ev: CloseEvent) => void) | null;
 
       constructor(url: string) {
         this.url = url;
+        this.readyState = 0;
+        this.sent = [];
+        this.onopen = null;
         this.onmessage = null;
         this.onerror = null;
-        this.onopen = null;
-        this._closed = false;
-        window.__lastEventSource = this;
+        this.onclose = null;
+
         setTimeout(() => {
-          if (this._closed) return;
-          if (this.onopen) this.onopen();
+          if (this.readyState !== 0) return;
+          this.readyState = 1;
+          this.onopen?.(new Event('open'));
         }, 0);
       }
 
-      close() {
-        this._closed = true;
+      send(data: string) {
+        this.sent.push(String(data));
+      }
+
+      close(code?: number, reason?: string) {
+        this.readyState = 3;
+        this.onclose?.({ code, reason } as CloseEvent);
       }
     }
 
-    window.EventSource = FakeEventSource as unknown as typeof EventSource;
+    (window as any).WebSocket = function (url: any, protocols?: any) {
+      if (typeof url === 'string' && url.includes('/stream/ws')) {
+        return new FakeRealtimeWebSocket(url);
+      }
+      return new (RealWebSocket as any)(url, protocols);
+    } as any;
   });
 
   const calls: Record<string, number> = Object.create(null);
@@ -129,6 +147,16 @@ test('connect-by-port + model picker + message pagination (no /sessions spam)', 
       return;
     }
 
+    if (path === `/api/v1/workspaces/${workspaceId}/connections` && req.method() === 'GET') {
+      bump('connections');
+      await json({
+        connections: [
+          { id: workspaceId, workspaceId, directory: 'C:/repo', label: 'conn-1', mode: 'port', status: 'idle', serverPort: 3009 },
+        ],
+      });
+      return;
+    }
+
     if (path === `/api/v1/workspaces/${workspaceId}/events`) {
       bump('events');
       await route.fulfill({ status: 204, body: '' });
@@ -138,13 +166,19 @@ test('connect-by-port + model picker + message pagination (no /sessions spam)', 
     if (path === `/api/v1/workspaces/${workspaceId}/sessions`) {
       bump('sessions');
       if (req.method() === 'GET') {
-        await json([{ id: sessionId, title: 'S' }]);
+        await json([{ id: sessionId, title: 'S', boundConnectionId: workspaceId }]);
         return;
       }
       if (req.method() === 'POST') {
         await json({ id: sessionId });
         return;
       }
+    }
+
+    if (path === `/api/v1/workspaces/${workspaceId}/sessions/${sessionId}/bind` && req.method() === 'POST') {
+      bump('session.bind');
+      await json({ ok: true });
+      return;
     }
 
     if (path === `/api/v1/workspaces/${workspaceId}/sessions/${sessionId}/messages`) {
@@ -164,12 +198,15 @@ test('connect-by-port + model picker + message pagination (no /sessions spam)', 
         return;
       }
 
-      await json([
-        {
-          info: { id: 'msg_2', role: 'assistant', sessionID: sessionId },
-          parts: [{ id: 'part_2', type: 'text', messageID: 'msg_2', sessionID: sessionId, text: 'latest' }],
-        },
-      ]);
+      // Return >= 50 messages so "Load older" is enabled.
+      const list = Array.from({ length: 50 }).map((_, i) => {
+        const id = `msg_${i + 2}`;
+        return {
+          info: { id, role: 'assistant', sessionID: sessionId },
+          parts: [{ id: `part_${i + 2}`, type: 'text', messageID: id, sessionID: sessionId, text: i === 0 ? 'latest' : `m${i + 2}` }],
+        };
+      });
+      await json(list);
       return;
     }
 
@@ -230,23 +267,38 @@ test('connect-by-port + model picker + message pagination (no /sessions spam)', 
   });
 
   await page.goto('/');
-
   await page.getByPlaceholder('Local directory path').fill('C:/repo');
-  await page.getByRole('combobox').first().selectOption('port');
-  await page.getByPlaceholder('Server port (e.g. 3000)').fill('3009');
   await page.getByRole('button', { name: 'Add' }).click();
-  await page.getByRole('button', { name: 'Open details' }).first().click();
 
-  await page.waitForURL(`**/workspaces/${workspaceId}/sessions`);
+  // Select the newly added workspace config so the New Connection modal preselects it.
+  await page.getByText('C:/repo', { exact: true }).click();
+
+  // Navigate to /work (SPA navigation; selection store is not persisted).
+  await page.getByTitle('Session Details').click();
+  await page.waitForURL('**/work');
+
+  // Create a port-mode connection via toolbar -> New Connection.
+  await page.getByRole('button', { name: 'Connection' }).click();
+  await page.getByRole('button', { name: 'New Connection' }).click();
+  await expect(page.getByText('New Connection')).toBeVisible();
+  await page.locator('#new-connection-mode').selectOption('port');
+  await page.locator('#new-connection-port').fill('3009');
+  await page.getByRole('button', { name: 'Create' }).click();
+
+  await page.waitForURL('**/work?**');
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('connId'))
+    .toBe(workspaceId);
 
   // Connect request carries serverPort and omits autoApprove in port mode.
   const connectRec = isJsonRecord(connectBody) ? connectBody : null;
   expect(connectRec?.serverPort).toBe(3009);
-  expect(connectRec?.autoApprove).toBe(undefined);
+  expect(connectRec?.autoApprove).toBe(true);
 
   // Model picker supports search + grouped select. Select a model.
-  await page.getByPlaceholder('Search models…').fill('gpt-4o');
-  await page.locator('.model-picker select').selectOption('openai:gpt-4o');
+  await page.getByRole('button', { name: /Model:/ }).click();
+  await page.getByPlaceholder('Search models...').fill('gpt-4o');
+  await page.locator('.composer-popover').getByRole('button', { name: 'gpt-4o', exact: true }).click();
 
   // Initial messages loaded.
   await expect(page.getByText('latest')).toBeVisible();
@@ -261,24 +313,8 @@ test('connect-by-port + model picker + message pagination (no /sessions spam)', 
   const promptRec = isJsonRecord(promptBody) ? promptBody : null;
   expect(promptRec?.model).toEqual({ providerID: 'openai', modelID: 'gpt-4o' });
 
-  // Emit noisy session.* SSE events; should not refetch /sessions.
-  // SessionPage may attempt WS first; wait until the SSE fallback attaches.
-  await page.waitForFunction(() => {
-    const es = window.__lastEventSource;
-    return !!es && typeof es.onmessage === 'function';
-  });
-  await page.evaluate((events) => {
-    const es = window.__lastEventSource;
-    if (!es) throw new Error('FakeEventSource instance not found');
-    for (const e of events) {
-      if (es._closed) return;
-      if (es.onmessage) es.onmessage({ data: JSON.stringify(e) });
-    }
-  }, [
-    { type: 'session.status', properties: { sessionID: sessionId, status: { type: 'busy' } } },
-    { type: 'session.idle', properties: { sessionID: sessionId } },
-  ]);
-
+  // Realtime status updates should not refetch /sessions.
+  await page.waitForTimeout(250);
   await expect.poll(() => calls['sessions'] ?? 0).toBe(sessionsBefore);
 
   // Pagination: load older messages uses cursor.

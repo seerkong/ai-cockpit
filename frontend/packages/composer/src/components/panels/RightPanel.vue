@@ -1,8 +1,65 @@
 <template>
   <section class="right-panel">
     <div class="panel-scroll">
+    <!-- Settings Tab -->
+    <div v-if="mode === 'settings'" class="panel-content">
+      <div class="context-section">
+        <div class="context-section-header">
+          <strong>Run Controls</strong>
+        </div>
+
+        <label class="toggle">
+          <input
+            type="checkbox"
+            :checked="stalledAutoRecoverEnabled"
+            @change="$emit('update:stalledAutoRecoverEnabled', ($event.target as HTMLInputElement).checked)"
+          />
+          <span>Auto-recover stalled session</span>
+        </label>
+
+        <div class="muted" style="margin-top: 6px;">
+          If session status stays busy/retry and no message progress occurs for the configured duration, the cockpit will abort and then send "请继续".
+        </div>
+
+        <div style="margin-top: 10px; display: flex; gap: 8px; align-items: center;">
+          <span class="muted" style="min-width: 120px;">Stall timeout</span>
+          <input
+            type="number"
+            min="1"
+            max="60"
+            step="1"
+            :disabled="!stalledAutoRecoverEnabled"
+            :value="stalledAutoRecoverTimeoutMinutes"
+            style="width: 96px;"
+            @change="$emit('update:stalledAutoRecoverTimeoutMinutes', Number(($event.target as HTMLInputElement).value))"
+          />
+          <span class="muted">minutes</span>
+        </div>
+      </div>
+
+      <div class="context-section">
+        <div class="context-section-header">
+          <strong>Permissions</strong>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" :checked="autoAcceptPermissions" :disabled="!capabilities?.permissions" @change="$emit('update:autoAcceptPermissions', ($event.target as HTMLInputElement).checked)" />
+          <span>Auto-accept permissions</span>
+        </label>
+      </div>
+
+      <div class="context-section">
+        <div class="context-section-header">
+          <strong>Codument</strong>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" :checked="codumentAutoRefreshEnabled" :disabled="!activeConnectionId" @change="$emit('update:codumentAutoRefreshEnabled', ($event.target as HTMLInputElement).checked)" />
+          <span>Enable 15s auto refresh</span>
+        </label>
+      </div>
+    </div>
+
     <!-- Review Tab -->
-    <div v-if="mode === 'review'" class="panel-content">
+    <div v-else-if="mode === 'review'" class="panel-content">
       <div class="review-toolbar">
         <button class="secondary" :disabled="!capabilities?.reviewDiffs" @click="$emit('refresh-diffs')">Refresh</button>
         <button class="secondary" :disabled="diffViewMode === 'unified'" @click="$emit('update:diffViewMode', 'unified')">Unified</button>
@@ -121,11 +178,6 @@
           <button class="secondary" :disabled="!capabilities?.permissions" @click="$emit('refresh-permissions')">Refresh</button>
         </div>
 
-        <label class="toggle">
-          <input type="checkbox" :checked="autoAcceptPermissions" :disabled="!capabilities?.permissions" @change="$emit('update:autoAcceptPermissions', ($event.target as HTMLInputElement).checked)" />
-          <span>Auto-accept</span>
-        </label>
-
         <div v-if="!capabilities?.permissions" class="muted">Permissions not supported by this provider.</div>
         <div v-else-if="permissionsLoading" class="muted">Loading permissions…</div>
         <div v-else-if="permissionsError" class="muted">{{ permissionsError }}</div>
@@ -194,11 +246,6 @@
         <strong>Codument Track</strong>
         <button class="secondary" :disabled="!activeConnectionId" @click="$emit('refresh-codument-tracks')">Refresh</button>
       </div>
-
-      <label class="toggle">
-        <input type="checkbox" :checked="codumentAutoRefreshEnabled" :disabled="!activeConnectionId" @change="$emit('update:codumentAutoRefreshEnabled', ($event.target as HTMLInputElement).checked)" />
-        <span>Enable 15s auto refresh</span>
-      </label>
 
       <div v-if="!activeConnectionId" class="muted">Select a connection first.</div>
       <div v-else-if="codumentTracksLoading" class="muted">Loading tracks…</div>
@@ -337,7 +384,7 @@ type SearchResult = {
 };
 
 export interface Props {
-  mode: 'review' | 'context' | 'files' | 'todo' | 'codument';
+  mode: 'review' | 'context' | 'files' | 'todo' | 'codument' | 'settings';
   sessionId: string;
   capabilities: Capabilities | null;
   // Review
@@ -398,6 +445,9 @@ export interface Props {
   };
   codumentTrackTreeLoading: boolean;
   codumentTrackTreeError: string | null;
+  // Settings
+  stalledAutoRecoverEnabled: boolean;
+  stalledAutoRecoverTimeoutMinutes: number;
   // Files
   fileTree: FileNode[];
   fileContent: string;
@@ -440,6 +490,8 @@ const props = withDefaults(defineProps<Props>(), {
   codumentTrackTree: null,
   codumentTrackTreeLoading: false,
   codumentTrackTreeError: null,
+  stalledAutoRecoverEnabled: true,
+  stalledAutoRecoverTimeoutMinutes: 5,
   fileTree: () => [],
   fileContent: '',
   searchPattern: '',
@@ -464,6 +516,8 @@ defineEmits<{
   'refresh-codument-tracks': [];
   'update:codumentTrackId': [trackId: string];
   'update:codumentAutoRefreshEnabled': [value: boolean];
+  'update:stalledAutoRecoverEnabled': [value: boolean];
+  'update:stalledAutoRecoverTimeoutMinutes': [value: number];
   'bind-codument-track': [];
   'load-file': [path: string];
   'load-directory': [path: string];
@@ -576,7 +630,8 @@ function getPermissionId(p: PermissionRequest): string {
 }
 
 function getQuestionId(q: QuestionRequest): string {
-  return String((q as Record<string, unknown>).id ?? JSON.stringify(q));
+  const rec = q as Record<string, unknown>;
+  return String(rec.id ?? rec.requestID ?? JSON.stringify(q));
 }
 
 function getTodoKey(todo: TodoItem): string {
@@ -877,13 +932,21 @@ function getTodoContent(todo: TodoItem): string {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   font-size: 12px;
   color: var(--muted);
   cursor: pointer;
 }
 
 .toggle input {
+  margin: 0;
+  flex: 0 0 auto;
   cursor: pointer;
+}
+
+.toggle span {
+  flex: 1;
+  min-width: 0;
 }
 
 .sidebar-section {
@@ -1040,7 +1103,12 @@ button:disabled {
   cursor: not-allowed;
 }
 
-input {
+input[type='text'],
+input[type='number'],
+input[type='search'],
+input[type='password'],
+input[type='email'],
+input[type='url'] {
   padding: 8px 12px;
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -1050,7 +1118,17 @@ input {
   width: 100%;
 }
 
-input:focus {
+/* Ensure toggles keep native checkbox sizing */
+input[type='checkbox'] {
+  width: auto;
+}
+
+input[type='text']:focus,
+input[type='number']:focus,
+input[type='search']:focus,
+input[type='password']:focus,
+input[type='email']:focus,
+input[type='url']:focus {
   outline: none;
   border-color: var(--accent);
 }

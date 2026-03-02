@@ -1,5 +1,6 @@
-import { ref, onUnmounted, getCurrentInstance, type Ref } from 'vue';
+import { ref, onUnmounted, getCurrentInstance, watch, type Ref } from 'vue';
 import { normalizeMessagesPayload, type MessageWithParts } from './useSessions';
+import { computeMessagesFingerprint } from '@frontend/core';
 
 export interface UseChatDeps {
   activeConnectionId: Ref<string>;
@@ -11,6 +12,8 @@ export interface UseChatDeps {
   sessionError: Ref<string | null>;
   /** Shared working ref owned by useSessions; useChat writes into it. */
   sessionWorking: Ref<boolean>;
+  /** When true, avoid polling + post-send refresh (realtime stream owns updates). */
+  realtimeActive?: Ref<boolean>;
   /** Optional overrides for testing */
   messagePageLimit?: number;
   messagePollIntervalMs?: number;
@@ -30,6 +33,7 @@ export function useChat(deps: UseChatDeps) {
     pushNotification,
     sessionError,
     sessionWorking,
+    realtimeActive,
   } = deps;
 
   const MESSAGE_PAGE_LIMIT = deps.messagePageLimit ?? 50;
@@ -38,6 +42,9 @@ export function useChat(deps: UseChatDeps) {
   const messages = ref<MessageWithParts[]>([]);
   const messagesHasOlder = ref(true);
   const messagesLoadingOlder = ref(false);
+  const messagesFingerprint = ref('empty');
+  const messagesLastProgressAtMs = ref<number | null>(null);
+  const messagesRefreshOk = ref(true);
   let messagePollTimer: ReturnType<typeof setInterval> | null = null;
 
   // --- Polling ---
@@ -51,9 +58,24 @@ export function useChat(deps: UseChatDeps) {
   function startMessagePolling() {
     stopMessagePolling();
     if (!activeConnectionId.value || !sessionId.value) return;
+    if (realtimeActive?.value) return;
     messagePollTimer = setInterval(() => {
-      void refreshMessages(activeConnectionId.value, sessionId.value, true);
+      void refreshMessages(activeConnectionId.value, sessionId.value, true).catch(() => {
+        // ignore; refreshMessages updates sessionError (if not silent) and refreshOk flag.
+      });
     }, MESSAGE_POLL_INTERVAL_MS);
+  }
+
+  // If realtime becomes active, polling must stop to avoid clobbering WS state.
+  if (getCurrentInstance() && realtimeActive) {
+    watch(
+      realtimeActive,
+      (active) => {
+        if (active) stopMessagePolling();
+        else startMessagePolling();
+      },
+      { immediate: true },
+    );
   }
 
   // --- Messages ---
@@ -61,12 +83,28 @@ export function useChat(deps: UseChatDeps) {
   async function refreshMessages(connectionId: string, sid: string, silent = false) {
     if (!connectionId || !sid) return;
     if (!silent) sessionError.value = null;
-    const resp = await apiFetchForConnection(connectionId, `/api/v1/workspaces/${connectionId}/sessions/${encodeURIComponent(sid)}/messages?limit=${MESSAGE_PAGE_LIMIT}`);
-    if (!resp.ok) { const text = await resp.text().catch(() => ''); throw new Error(text || `Failed to load messages (${resp.status})`); }
-    const payload = await resp.json().catch(() => []);
-    const next = normalizeMessagesPayload(payload);
-    messages.value = next;
-    messagesHasOlder.value = next.length >= MESSAGE_PAGE_LIMIT;
+    try {
+      const resp = await apiFetchForConnection(connectionId, `/api/v1/workspaces/${connectionId}/sessions/${encodeURIComponent(sid)}/messages?limit=${MESSAGE_PAGE_LIMIT}`);
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '');
+        throw new Error(text || `Failed to load messages (${resp.status})`);
+      }
+      const payload = await resp.json().catch(() => []);
+      const next = normalizeMessagesPayload(payload);
+      messages.value = next;
+      messagesHasOlder.value = next.length >= MESSAGE_PAGE_LIMIT;
+
+      const nextFingerprint = computeMessagesFingerprint(next);
+      if (nextFingerprint !== messagesFingerprint.value) {
+        messagesFingerprint.value = nextFingerprint;
+        messagesLastProgressAtMs.value = Date.now();
+      }
+
+      messagesRefreshOk.value = true;
+    } catch (err) {
+      messagesRefreshOk.value = false;
+      throw err;
+    }
   }
 
   async function loadOlderMessages() {
@@ -111,7 +149,10 @@ export function useChat(deps: UseChatDeps) {
         });
         if (!resp.ok) { const text = await resp.text().catch(() => ''); throw new Error(text || `Failed to send prompt (${resp.status})`); }
       }
-      await refreshMessages(cid, sid, true); startMessagePolling();
+      if (!realtimeActive?.value) {
+        await refreshMessages(cid, sid, true);
+        startMessagePolling();
+      }
     } catch (err) { const m = err instanceof Error ? err.message : 'Failed to send prompt.'; sessionError.value = m; pushNotification('error', m); }
     finally { sessionWorking.value = false; }
   }
@@ -136,6 +177,9 @@ export function useChat(deps: UseChatDeps) {
     messages,
     messagesHasOlder,
     messagesLoadingOlder,
+    messagesFingerprint,
+    messagesLastProgressAtMs,
+    messagesRefreshOk,
 
     // Functions
     refreshMessages,

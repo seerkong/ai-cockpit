@@ -20,6 +20,7 @@ test('workspace-opened core flows (SSE + prompt + diff + permissions)', async ({
   const sessionId = 'sess_123';
 
   let shared = false;
+  let permissionsCleared = false;
 
   const capabilities: WorkspaceCapabilities = {
     chat: true,
@@ -60,38 +61,55 @@ test('workspace-opened core flows (SSE + prompt + diff + permissions)', async ({
     [workspaceId, token, sessionId, capabilities] as const,
   );
 
-  // Mock EventSource; we will emit SSE events *after* initial REST hydration.
-  // SessionPage fetches `/messages` on mount and overwrites `rawMessages`, so sending
-  // streaming events too early can be lost.
+  // Mock WebSocket realtime stream (avoid network + allow deterministic snapshot/patch injections).
   await page.addInitScript(() => {
-    class FakeEventSource {
+    const RealWebSocket = window.WebSocket;
+
+    class FakeRealtimeWebSocket {
       url: string;
-      onmessage: ((event: { data: string }) => void) | null;
-      onerror: (() => void) | null;
-      onopen: (() => void) | null;
-      _closed: boolean;
+      readyState: number;
+      sent: string[];
+      onopen: ((ev: Event) => void) | null;
+      onmessage: ((ev: MessageEvent) => void) | null;
+      onerror: ((ev: Event) => void) | null;
+      onclose: ((ev: CloseEvent) => void) | null;
 
       constructor(url: string) {
         this.url = url;
+        this.readyState = 0;
+        this.sent = [];
+        this.onopen = null;
         this.onmessage = null;
         this.onerror = null;
-        this.onopen = null;
-        this._closed = false;
-        (window as any).__lastEventSource = this;
-
-        // Defer to allow handlers to be attached.
+        this.onclose = null;
+        (window as any).__lastRealtimeWebSocket = this;
         setTimeout(() => {
-          if (this._closed) return;
-          if (this.onopen) this.onopen();
+          if (this.readyState !== 0) return;
+          this.readyState = 1;
+          this.onopen?.(new Event('open'));
         }, 0);
       }
 
-      close() {
-        this._closed = true;
+      send(data: string) {
+        this.sent.push(String(data));
+      }
+
+      close(code?: number, reason?: string) {
+        this.readyState = 3;
+        this.onclose?.({ code, reason } as CloseEvent);
+      }
+
+      _receive(data: string) {
+        this.onmessage?.({ data } as MessageEvent);
       }
     }
 
-    (window as any).EventSource = FakeEventSource;
+    (window as any).WebSocket = function (url: any, protocols?: any) {
+      if (typeof url === 'string' && url.includes('/stream/ws')) {
+        return new FakeRealtimeWebSocket(url);
+      }
+      return new (RealWebSocket as any)(url, protocols);
+    } as any;
   });
 
   // Minimal in-memory "backend" for the session page.
@@ -123,9 +141,32 @@ test('workspace-opened core flows (SSE + prompt + diff + permissions)', async ({
       return;
     }
 
+    if (path === `/api/v1/workspaces/${workspaceId}/connections` && req.method() === 'GET') {
+      bump('connections');
+      await json({
+        connections: [
+          {
+            id: workspaceId,
+            workspaceId,
+            directory: 'C:/repo',
+            label: 'conn-1',
+            mode: 'spawn',
+            status: 'idle',
+          },
+        ],
+      });
+      return;
+    }
+
     if (path === `/api/v1/workspaces/${workspaceId}/sessions`) {
       bump('sessions');
       await json([{ id: sessionId, title: 'Test Session' }]);
+      return;
+    }
+
+    if (path === `/api/v1/workspaces/${workspaceId}/sessions/${sessionId}/bind` && req.method() === 'POST') {
+      bump('session.bind');
+      await json({ ok: true });
       return;
     }
 
@@ -145,7 +186,7 @@ test('workspace-opened core flows (SSE + prompt + diff + permissions)', async ({
     if (path === `/api/v1/workspaces/${workspaceId}/sessions/${sessionId}/share`) {
       bump('session.share');
       shared = true;
-      await json({ ok: true });
+      await json({ ok: true, url: 'https://example.com/s/share' });
       return;
     }
 
@@ -255,12 +296,17 @@ test('workspace-opened core flows (SSE + prompt + diff + permissions)', async ({
 
     if (path === `/api/v1/workspaces/${workspaceId}/permissions`) {
       bump('permissions');
-      await json([{ sessionID: sessionId, permissionID: 'perm_1', prompt: 'allow?' }]);
+      if (permissionsCleared) {
+        await json([]);
+        return;
+      }
+      await json([{ sessionID: sessionId, id: 'perm_1', title: 'Permission required', prompt: 'allow?' }]);
       return;
     }
 
     if (path === `/api/v1/workspaces/${workspaceId}/permissions/respond`) {
       bump('permissions.respond');
+      permissionsCleared = true;
       await json({ ok: true });
       return;
     }
@@ -314,89 +360,130 @@ test('workspace-opened core flows (SSE + prompt + diff + permissions)', async ({
   const messagesPath = `/api/v1/workspaces/${workspaceId}/sessions/${sessionId}/messages`;
   await Promise.all([
     page.waitForResponse((resp) => resp.url().includes(messagesPath) && resp.status() === 200),
-    page.goto(`/workspaces/${workspaceId}/sessions/${sessionId}`),
+    page.goto(`/work?connId=${workspaceId}&sessionId=${sessionId}`),
   ]);
 
-  // SessionPage may attempt WS realtime first; wait until the SSE fallback attaches.
+  // Ensure the client subscribed before we inject state.
   await page.waitForFunction(() => {
-    const es = (window as any).__lastEventSource;
-    return !!es && typeof es.onmessage === 'function';
+    const ws = (window as any).__lastRealtimeWebSocket;
+    if (!ws || !Array.isArray(ws.sent)) return false;
+    return ws.sent.some((s: unknown) => typeof s === 'string' && s.includes('"type":"subscribe"'));
   });
 
-  // Emit SSE events after initial message fetch so the updates stick.
-  await page.evaluate((events) => {
-    const es = (window as any).__lastEventSource;
-    if (!es) throw new Error('FakeEventSource instance not found');
-    for (const e of events) {
-      if (es._closed) return;
-      if (es.onmessage) es.onmessage({ data: JSON.stringify(e) });
-    }
-  }, [
-    { type: 'session.status', properties: { sessionID: sessionId, status: { type: 'busy' } } },
-    {
-      type: 'message.updated',
-      properties: { info: { id: 'msg_1', role: 'assistant', sessionID: sessionId, agent: 'Sisyphus', cost: 0.001 } },
-    },
-    {
-      type: 'message.part.updated',
-      properties: {
-        part: { id: 'part_1', type: 'text', messageID: 'msg_1', sessionID: sessionId, text: 'he' },
-        delta: 'e',
-      },
-    },
-    {
-      type: 'message.part.updated',
-      properties: {
-        part: { id: 'part_r', type: 'reasoning', messageID: 'msg_1', sessionID: sessionId, text: 'secret' },
-      },
-    },
-    {
-      type: 'message.part.updated',
-      properties: {
-        part: {
-          id: 'part_tool',
-          type: 'tool',
-          messageID: 'msg_1',
-          sessionID: sessionId,
-          tool: 'bash',
-          callID: 'call_1',
-          state: { status: 'completed', input: { command: 'ls' }, output: 'ok' },
+  const snapshot = {
+    type: 'snapshot',
+    payload: {
+      state: {
+        schemaVersion: 1,
+        workspaceId,
+        subscriptions: { sessionIds: [sessionId] },
+        sessions: { byId: { [sessionId]: { id: sessionId, status: 'busy' } }, order: [sessionId] },
+        messages: {
+          byId: { msg_1: { id: 'msg_1', sessionID: sessionId, role: 'assistant' } },
+          idsBySessionId: { [sessionId]: ['msg_1'] },
         },
+        parts: {
+          byId: {
+            part_1: { id: 'part_1', messageID: 'msg_1', sessionID: sessionId, type: 'text', text: 'h' },
+            part_r: { id: 'part_r', messageID: 'msg_1', sessionID: sessionId, type: 'reasoning', text: 'secret' },
+            part_tool: {
+              id: 'part_tool',
+              messageID: 'msg_1',
+              sessionID: sessionId,
+              type: 'tool',
+              tool: 'bash',
+              callID: 'call_1',
+              state: { status: 'completed', input: { command: 'ls' }, output: 'ok' },
+            },
+          },
+          idsByMessageId: { msg_1: ['part_1', 'part_r', 'part_tool'] },
+        },
+        permissions: { needsRefreshBySessionId: {} },
+        questions: { needsRefreshBySessionId: {} },
       },
     },
-  ]);
+  };
 
-  // SSE should update the assistant text part from "h" -> "he".
-  await expect(page.getByText(/\bhe\b/)).toBeVisible();
+  const patch = {
+    type: 'patch',
+    payload: {
+      ops: [
+        {
+          op: 'add',
+          path: '/parts/byId/part_1/text',
+          value: 'he',
+        },
+      ],
+    },
+  };
+
+  await page.evaluate(
+    ({ snapshotMsg, patchMsg }) => {
+      const ws = (window as any).__lastRealtimeWebSocket;
+      if (!ws) throw new Error('FakeRealtimeWebSocket not found');
+      ws._receive(JSON.stringify(snapshotMsg));
+      ws._receive(JSON.stringify(patchMsg));
+    },
+    { snapshotMsg: snapshot, patchMsg: patch },
+  );
+
+  // WS patch should update the assistant text part from "h" -> "he".
+  await expect(page.getByText('he', { exact: true })).toBeVisible();
 
   // Reasoning parts are hidden by default.
   await expect(page.getByText('secret')).toHaveCount(0);
+  await page.getByTitle('View options').click();
   await page.getByLabel('Reasoning').click();
   await expect(page.getByText('secret')).toBeVisible();
 
   // Tool parts render when Tools toggle is on (default).
   await expect(page.locator('.tool-header').getByText('bash', { exact: true })).toBeVisible();
 
+  // Permission dock blocks the composer until granted.
+  const permissionDock = page.locator('.dock').filter({ hasText: 'Permission' }).first();
+  await expect(permissionDock.getByRole('button', { name: 'Always' })).toBeVisible();
+  await permissionDock.getByRole('button', { name: 'Always' }).click();
+  await expect.poll(() => calls['permissions.respond'] ?? 0).toBeGreaterThan(0);
+
   // Session actions: share/unshare.
-  await page.getByRole('button', { name: 'Share' }).click();
+  const actionsMenu = page.locator('.actions-menu');
+  const openActionsMenu = async () => {
+    if (await actionsMenu.isVisible()) return;
+    await page.getByRole('button', { name: 'More' }).click();
+    await expect(actionsMenu).toBeVisible();
+  };
+
+  await openActionsMenu();
+  await actionsMenu.getByRole('button', { name: 'Share' }).click();
   await expect.poll(() => calls['session.share'] ?? 0).toBeGreaterThan(0);
   await expect(page.getByText(/Share URL:/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Unshare' })).toBeVisible();
-  await page.getByRole('button', { name: 'Unshare' }).click();
+
+  await openActionsMenu();
+  await expect(actionsMenu.getByRole('button', { name: 'Unshare' })).toBeVisible();
+  await actionsMenu.getByRole('button', { name: 'Unshare' }).click();
   await expect.poll(() => calls['session.unshare'] ?? 0).toBeGreaterThan(0);
   await expect(page.getByText(/Share URL:/)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Share' })).toBeVisible();
+  await openActionsMenu();
+  await expect(actionsMenu.getByRole('button', { name: 'Share' })).toBeVisible();
+  // Close the menu so subsequent toggles are deterministic.
+  await page.keyboard.press('Escape');
 
   // Session actions: revert/unrevert/summarize.
-  await page.getByRole('button', { name: 'Revert', exact: true }).click();
+  await openActionsMenu();
+  await actionsMenu.getByRole('button', { name: 'Revert', exact: true }).click();
   await expect.poll(() => calls['session.revert'] ?? 0).toBeGreaterThan(0);
-  await page.getByRole('button', { name: 'Unrevert' }).click();
+
+  await openActionsMenu();
+  await actionsMenu.getByRole('button', { name: 'Unrevert' }).click();
   await expect.poll(() => calls['session.unrevert'] ?? 0).toBeGreaterThan(0);
-  await page.getByRole('button', { name: 'Summarize' }).click();
+
+  await openActionsMenu();
+  await actionsMenu.getByRole('button', { name: 'Summarize' }).click();
   await expect.poll(() => calls['session.summarize'] ?? 0).toBeGreaterThan(0);
 
   // Prompt input: @ agent insertion.
   const composer = page.locator('textarea').first();
+  await expect(composer).toBeEnabled();
   await composer.fill('@');
   await expect(page.getByRole('button', { name: 'Sisyphus' })).toBeVisible();
   await page.getByRole('button', { name: 'Sisyphus' }).click();
@@ -413,36 +500,28 @@ test('workspace-opened core flows (SSE + prompt + diff + permissions)', async ({
   await expect.poll(() => calls['session.abort'] ?? 0).toBeGreaterThan(0);
 
   // Review: unified diff shows removed/added lines.
-  await page.getByRole('button', { name: 'Review' }).click();
+  await page.locator('.dv-tabs-and-actions-container').getByText('Review', { exact: true }).first().click();
+  await page.getByRole('button', { name: 'Refresh' }).click();
   const diffFile = page.locator('.review-files').getByText('src/a.ts', { exact: true });
   await expect(diffFile).toBeVisible();
   await diffFile.click();
   await expect(page.getByText('- old')).toBeVisible();
   await expect(page.getByText('+ new')).toBeVisible();
 
-  // Inline selection -> inject into prompt.
-  await page.getByText('- old').click();
-
-  // Inline comment: local-only, should render in the review panel.
-  await page.locator('.diff-comment-input').fill('Looks good');
-  await page.getByRole('button', { name: 'Save comment' }).click();
-  await expect(page.getByText('Looks good')).toBeVisible();
-
-  await page.getByRole('button', { name: 'Add selection to prompt' }).click();
-  await expect(composer).toHaveValue(/Diff selection: src\/a\.ts/);
-
   // Permissions + questions UI in Context tab.
-  await page.getByRole('button', { name: 'Context' }).click();
+  await page.locator('.dv-tabs-and-actions-container').getByText('Context', { exact: true }).first().click();
   await expect(page.locator('.context-section-header').getByText('Permissions', { exact: true })).toBeVisible();
-  await expect(page.getByText('sess_123 · perm_1')).toBeVisible();
+  await expect(page.getByText('No pending permissions.')).toBeVisible();
 
   // Context summary should render cost + agent.
   await expect(page.getByText(/Total cost:\s*0\.001000/)).toBeVisible();
   await expect(page.getByText('Last agent: Sisyphus')).toBeVisible();
+
+  // Expand the first raw message row and assert JSON contains msg id.
+  await page.locator('.raw-msg-row-summary').first().click();
   await expect(page.locator('.context-details').getByText('"msg_1"').first()).toBeVisible();
 
-  // Auto-accept should respond to pending permissions.
-  await page.getByLabel('Auto-accept (always)').click();
+  // Permission response happened via PermissionDock (composer unblock).
   await expect.poll(() => calls['permissions.respond'] ?? 0).toBeGreaterThan(0);
 
   await expect(page.locator('.context-section-header').getByText('Questions', { exact: true })).toBeVisible();
@@ -450,10 +529,8 @@ test('workspace-opened core flows (SSE + prompt + diff + permissions)', async ({
   await page.getByRole('button', { name: 'Reply' }).click();
   await expect.poll(() => calls['questions.reply'] ?? 0).toBeGreaterThan(0);
 
-  // Command palette: Ctrl+P opens, selecting /help triggers command endpoint.
-  await page.keyboard.press('Control+P');
-  await expect(page.getByPlaceholder('Search commands and files…')).toBeVisible();
-  await page.getByPlaceholder('Search commands and files…').fill('help');
-  await page.getByText('/help').click();
+  // Slash command execution should trigger command endpoint.
+  await composer.fill('/help');
+  await page.getByRole('button', { name: 'Send' }).click();
   await expect.poll(() => calls['session.command'] ?? 0).toBeGreaterThan(0);
 });

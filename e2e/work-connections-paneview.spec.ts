@@ -26,7 +26,9 @@ test('work: Connections paneview renders and items are clickable', async ({ page
   });
 
   const ws1 = { id: 'ws_1', token: 'tok_1', directory: 'C:/repo' };
-  const ws2 = { id: 'ws_2', token: 'tok_2', directory: 'C:/repo2' };
+  // Keep both connections in the same directory so the connections pool merge logic
+  // (anchored by the active workspace directory) includes both.
+  const ws2 = { id: 'ws_2', token: 'tok_2', directory: 'C:/repo' };
 
   const calls: Record<string, number> = Object.create(null);
   const bump = (key: string) => {
@@ -185,15 +187,143 @@ test('work: Connections paneview renders and items are clickable', async ({ page
   // Active section should render busy connection.
   // If the section isn't expanded by default, click the header to expand.
   await connectionsPanel.getByText('Active', { exact: true }).click();
-  await expect(connectionsPanel.getByText(ws2.directory, { exact: true })).toBeVisible();
+
+  const ws2Row = connectionsPanel.locator('.session-item').filter({ hasText: 'ws_2 · port' }).first();
+  await expect(ws2Row).toBeVisible();
 
   // Clicking a connection should activate it and update route query.
-  await connectionsPanel.getByText(ws2.directory, { exact: true }).click();
-  await expect(page).toHaveURL(/\bconnId=ws_2\b/);
-  await expect(connectionsPanel.locator('.session-item.active')).toContainText(ws2.directory);
+  // Dockview can intermittently overlay sashes/headers over the list in headless.
+  // Trigger the click via DOM to avoid pointer interception flake.
+  await ws2Row.evaluate((el) => (el as HTMLElement).click());
+
+  await expect(connectionsPanel.locator('.session-item.active')).toContainText('ws_2 · port');
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('connId'))
+    .toBe('ws_2');
 
   // Toolbar menu should open New Connection modal.
   await page.getByRole('button', { name: 'Connection' }).click();
   await page.getByRole('button', { name: 'New Connection' }).click();
   await expect(page.getByText('New Connection')).toBeVisible();
+});
+
+test('work: Settings tab renders stalled auto-recover controls', async ({ page }) => {
+  const ws1 = { id: 'ws_1', token: 'tok_1', directory: 'C:/repo' };
+
+  await page.addInitScript(
+    ([w1]) => {
+      const state = {
+        version: 1,
+        activeWorkspaceId: w1.id,
+        workspaces: [
+          {
+            workspace: {
+              id: w1.id,
+              provider: 'opencode.local',
+              directory: w1.directory,
+              status: 'ready',
+              createdAt: Date.now(),
+              capabilities: {
+                chat: true,
+                events: true,
+                reviewDiffs: false,
+                inlineComments: false,
+                fileRead: false,
+                fileSearch: false,
+                commands: true,
+                agents: true,
+                models: true,
+                permissions: true,
+                questions: true,
+              },
+            },
+            token: w1.token,
+            lastSessionId: '',
+          },
+        ],
+      };
+      localStorage.setItem('ai-cockpit.workspaces.v1', JSON.stringify(state));
+    },
+    [ws1] as const,
+  );
+
+  await page.route('**/api/v1/workspaces/**', async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    const path = url.pathname;
+
+    const json = async (data: unknown, status = 200) => {
+      await route.fulfill({
+        status,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+        },
+        body: JSON.stringify(data),
+      });
+    };
+
+    if (path === `/api/v1/workspaces/${ws1.id}/connections`) {
+      await json({
+        connections: [
+          {
+            id: ws1.id,
+            workspaceId: ws1.id,
+            directory: ws1.directory,
+            label: ws1.id,
+            mode: 'port',
+            status: 'idle',
+            serverPort: 3000,
+          },
+        ],
+      });
+      return;
+    }
+
+    if (path.endsWith('/agents')) {
+      await json([]);
+      return;
+    }
+    if (path.endsWith('/commands')) {
+      await json([]);
+      return;
+    }
+    if (path.endsWith('/models')) {
+      await json({ all: [] });
+      return;
+    }
+    if (path.endsWith('/sessions')) {
+      if (req.method() === 'GET') {
+        await json([{ id: 'sess_1', title: 'S' }]);
+        return;
+      }
+      if (req.method() === 'POST') {
+        await json({ id: 'sess_1' });
+        return;
+      }
+    }
+    if (path.includes('/sessions/') && path.endsWith('/bind')) {
+      await json({ ok: true });
+      return;
+    }
+    if (path.includes('/sessions/') && path.endsWith('/messages')) {
+      await json([]);
+      return;
+    }
+
+    await json({ error: `unhandled ${req.method()} ${path}` }, 404);
+  });
+
+  await page.goto('/work');
+  await page.locator('.dv-tabs-and-actions-container').getByText('Settings', { exact: true }).first().click();
+
+  const rightPanel = page.locator('.right-panel');
+  await expect(rightPanel.getByText('Run Controls', { exact: true })).toBeVisible();
+  await expect(rightPanel.getByText('Auto-recover stalled session', { exact: true })).toBeVisible();
+  await expect(rightPanel.getByText('Auto-accept permissions', { exact: true })).toBeVisible();
+  await expect(rightPanel.getByText('Enable 15s auto refresh', { exact: true })).toBeVisible();
+
+  const timeoutInput = rightPanel.locator("input[type='number'][min='1'][max='60']");
+  await expect(timeoutInput).toBeVisible();
+  await expect(timeoutInput).toHaveValue('5');
 });

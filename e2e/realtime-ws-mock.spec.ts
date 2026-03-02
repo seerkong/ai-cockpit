@@ -134,16 +134,32 @@ test('realtime ws mock: snapshot + patch updates UI incrementally', async ({ pag
       return;
     }
 
+    if (path === `/api/v1/workspaces/${workspaceId}/connections` && req.method() === 'GET') {
+      bump('connections');
+      await json({
+        connections: [
+          { id: workspaceId, workspaceId, directory: 'C:/repo', label: 'conn-1', mode: 'spawn', status: 'idle' },
+        ],
+      });
+      return;
+    }
+
     if (path === `/api/v1/workspaces/${workspaceId}/sessions`) {
       bump('sessions');
       if (req.method() === 'GET') {
-        await json([{ id: sessionId, title: 'S' }]);
+        await json([{ id: sessionId, title: 'S', boundConnectionId: workspaceId }]);
         return;
       }
       if (req.method() === 'POST') {
         await json({ id: sessionId });
         return;
       }
+    }
+
+    if (path === `/api/v1/workspaces/${workspaceId}/sessions/${sessionId}/bind` && req.method() === 'POST') {
+      bump('bind');
+      await json({ ok: true });
+      return;
     }
 
     if (path === `/api/v1/workspaces/${workspaceId}/sessions/${sessionId}/messages`) {
@@ -175,8 +191,18 @@ test('realtime ws mock: snapshot + patch updates UI incrementally', async ({ pag
   await page.goto('/');
   await page.getByPlaceholder('Local directory path').fill('C:/repo');
   await page.getByRole('button', { name: 'Add' }).click();
-  await page.getByRole('button', { name: 'Open details' }).first().click();
-  await page.waitForURL(`**/workspaces/${workspaceId}/sessions`);
+  await page.getByText('C:/repo', { exact: true }).click();
+  await page.getByTitle('Session Details').click();
+  await page.waitForURL('**/work');
+  await page.getByRole('button', { name: 'Connection' }).click();
+  await page.getByRole('button', { name: 'New Connection' }).click();
+  // Ensure spawn mode is selected (default, but make explicit).
+  await page.locator('#new-connection-mode').selectOption('spawn');
+  await page.getByRole('button', { name: 'Create' }).click();
+
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('connId'))
+    .toBe(workspaceId);
 
   // Ensure initial hydration happened.
   await expect.poll(() => calls['messages'] ?? 0).toBeGreaterThan(0);
@@ -346,9 +372,21 @@ test('realtime ws mock: prompt refresh is deferred while ws stream is active', a
       return;
     }
 
+    if (path === `/api/v1/workspaces/${workspaceId}/connections` && req.method() === 'GET') {
+      bump('connections');
+      await json({ connections: [{ id: workspaceId, workspaceId, directory: 'C:/repo', label: 'conn-1', mode: 'spawn', status: 'idle' }] });
+      return;
+    }
+
     if (path === `/api/v1/workspaces/${workspaceId}/sessions`) {
       bump('sessions');
-      await json([{ id: sessionId, title: 'S' }]);
+      await json([{ id: sessionId, title: 'S', boundConnectionId: workspaceId }]);
+      return;
+    }
+
+    if (path === `/api/v1/workspaces/${workspaceId}/sessions/${sessionId}/bind` && req.method() === 'POST') {
+      bump('bind');
+      await json({ ok: true });
       return;
     }
 
@@ -387,8 +425,16 @@ test('realtime ws mock: prompt refresh is deferred while ws stream is active', a
   await page.goto('/');
   await page.getByPlaceholder('Local directory path').fill('C:/repo');
   await page.getByRole('button', { name: 'Add' }).click();
-  await page.getByRole('button', { name: 'Open details' }).first().click();
-  await page.waitForURL(`**/workspaces/${workspaceId}/sessions`);
+  await page.getByText('C:/repo', { exact: true }).click();
+  await page.getByTitle('Session Details').click();
+  await page.waitForURL('**/work');
+  await page.getByRole('button', { name: 'Connection' }).click();
+  await page.getByRole('button', { name: 'New Connection' }).click();
+  await page.locator('#new-connection-mode').selectOption('spawn');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('connId'))
+    .toBe(workspaceId);
 
   await expect.poll(() => calls['messages'] ?? 0).toBeGreaterThan(0);
   const initialMessagesCalls = calls['messages'] ?? 0;
@@ -590,8 +636,18 @@ test('realtime ws mock: reconnect rehydrates via snapshot', async ({ page }) => 
       return;
     }
 
+    if (path === `/api/v1/workspaces/${workspaceId}/connections` && req.method() === 'GET') {
+      await json({ connections: [{ id: workspaceId, workspaceId, directory: 'C:/repo', label: 'conn-1', mode: 'spawn', status: 'idle' }] });
+      return;
+    }
+
     if (path === `/api/v1/workspaces/${workspaceId}/sessions`) {
       await json([{ id: sessionId, title: 'S' }]);
+      return;
+    }
+
+    if (path === `/api/v1/workspaces/${workspaceId}/sessions/${sessionId}/bind` && req.method() === 'POST') {
+      await json({ ok: true });
       return;
     }
 
@@ -621,8 +677,16 @@ test('realtime ws mock: reconnect rehydrates via snapshot', async ({ page }) => 
   await page.goto('/');
   await page.getByPlaceholder('Local directory path').fill('C:/repo');
   await page.getByRole('button', { name: 'Add' }).click();
-  await page.getByRole('button', { name: 'Open details' }).first().click();
-  await page.waitForURL(`**/workspaces/${workspaceId}/sessions`);
+  await page.getByText('C:/repo', { exact: true }).click();
+  await page.getByTitle('Session Details').click();
+  await page.waitForURL('**/work');
+  await page.getByRole('button', { name: 'Connection' }).click();
+  await page.getByRole('button', { name: 'New Connection' }).click();
+  await page.locator('#new-connection-mode').selectOption('spawn');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('connId'))
+    .toBe(workspaceId);
 
   // Wait for first connection to subscribe.
   await page.waitForFunction(() => {
@@ -846,8 +910,18 @@ test('realtime ws mock: ws failure falls back to EventSource', async ({ page }) 
       return;
     }
 
+    if (path === `/api/v1/workspaces/${workspaceId}/connections` && req.method() === 'GET') {
+      await json({ connections: [{ id: workspaceId, workspaceId, directory: 'C:/repo', label: 'conn-1', mode: 'port', status: 'idle', serverPort: 3009 }] });
+      return;
+    }
+
     if (path === `/api/v1/workspaces/${workspaceId}/sessions`) {
       await json([{ id: sessionId, title: 'S' }]);
+      return;
+    }
+
+    if (path === `/api/v1/workspaces/${workspaceId}/sessions/${sessionId}/bind` && req.method() === 'POST') {
+      await json({ ok: true });
       return;
     }
 
@@ -866,13 +940,18 @@ test('realtime ws mock: ws failure falls back to EventSource', async ({ page }) 
 
   await page.goto('/');
   await page.getByPlaceholder('Local directory path').fill('C:/repo');
-
-  // Force port mode to ensure WS is attempted.
-  await page.getByRole('combobox').first().selectOption('port');
-  await page.getByPlaceholder('Server port (e.g. 3000)').fill('3009');
   await page.getByRole('button', { name: 'Add' }).click();
-  await page.getByRole('button', { name: 'Open details' }).first().click();
-  await page.waitForURL(`**/workspaces/${workspaceId}/sessions`);
+  await page.getByText('C:/repo', { exact: true }).click();
+  await page.getByTitle('Session Details').click();
+  await page.waitForURL('**/work');
+  await page.getByRole('button', { name: 'Connection' }).click();
+  await page.getByRole('button', { name: 'New Connection' }).click();
+  await page.locator('#new-connection-mode').selectOption('port');
+  await page.locator('#new-connection-port').fill('3009');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('connId'))
+    .toBe(workspaceId);
 
   // Wait for fallback to construct an EventSource.
   await page.waitForFunction(() => {

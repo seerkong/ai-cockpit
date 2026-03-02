@@ -10,4 +10,4 @@
 
 | Track ID | 名称 | 状态 | 创建时间 |
 |----------|------|------|----------|
-<!-- 新的 track 将在此处添加 -->
+| add-stalled-session-auto-recover | 会话卡住自动恢复与右侧 Settings Tab | in_progress | 2026-03-01 |

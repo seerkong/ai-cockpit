@@ -5,6 +5,26 @@ export const routes: RouteRecordRaw[] = [
     path: '/',
     redirect: { name: 'workspace' },
   },
+  // Legacy URLs (pre-dockview) -> canonical /work route.
+  {
+    path: '/workspaces/:workspaceId/sessions',
+    redirect: (to) => ({
+      name: 'work',
+      query: {
+        connId: String(to.params.workspaceId || ''),
+      },
+    }),
+  },
+  {
+    path: '/workspaces/:workspaceId/sessions/:sessionId',
+    redirect: (to) => ({
+      name: 'work',
+      query: {
+        connId: String(to.params.workspaceId || ''),
+        sessionId: String(to.params.sessionId || ''),
+      },
+    }),
+  },
   {
     name: 'workspace',
     path: '/workspace',

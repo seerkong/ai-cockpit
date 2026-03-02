@@ -46,6 +46,23 @@ export function useDockviewLayout() {
     try {
       const layout = JSON.parse(saved) as SerializedDockview;
       api.fromJSON(layout);
+
+      // Ensure newly introduced panels exist even when restoring an older layout.
+      // This avoids features becoming undiscoverable for users with saved layouts.
+      try {
+        const hasSettings = Boolean(api.getPanel('right-settings'));
+        const hasTodo = Boolean(api.getPanel('right-todo'));
+        if (!hasSettings && hasTodo) {
+          api.addPanel({
+            id: 'right-settings',
+            component: 'right-settings',
+            title: 'Settings',
+            position: { referencePanel: 'right-todo', direction: 'within' },
+          });
+        }
+      } catch {
+        // ignore
+      }
       return true;
     } catch (e) {
       console.warn('Failed to restore layout:', e);
@@ -77,13 +94,20 @@ export function useDockviewLayout() {
       initialHeight: centerTopHeight,
     });
 
-    // Right panel tab order: Todo -> Context -> Review -> Files -> Codument
+    // Right panel tab order: Todo -> Settings -> Context -> Review -> Files -> Codument
     api.addPanel({
       id: 'right-todo',
       component: 'right-todo',
       title: 'Todo',
       position: { referencePanel: 'chat', direction: 'right' },
       initialWidth: sideWidth,
+    });
+
+    api.addPanel({
+      id: 'right-settings',
+      component: 'right-settings',
+      title: 'Settings',
+      position: { referencePanel: 'right-todo', direction: 'within' },
     });
 
     api.addPanel({

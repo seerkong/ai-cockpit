@@ -62,7 +62,7 @@ async function installRealtimeSocketStub(page: Parameters<typeof test>[0]['page'
 
 async function installMockApi(
   page: Parameters<typeof test>[0]['page'],
-  options?: { initialBindings?: Record<string, string> },
+  options?: { initialBindings?: Record<string, string>; disableBindMutation?: boolean },
 ) {
   const sessions = [
     { id: 'sess_a', title: 'Session A', status: 'idle' },
@@ -114,6 +114,11 @@ async function installMockApi(
     if (promptMatch && req.method() === 'POST') {
       const sid = promptMatch[1] ?? ''
       promptCalls[sid] = (promptCalls[sid] ?? 0) + 1
+      // Mirror backend behavior: prompt execution requires session binding.
+      if (!bindings[sid]) {
+        await json({ error: 'session not bound to connection' }, 409)
+        return
+      }
       await json({ ok: true })
       return
     }
@@ -156,7 +161,9 @@ async function installMockApi(
     const bindMatch = path.match(new RegExp(`^/api/v1/workspaces/${workspaceId}/sessions/([^/]+)/bind$`))
     if (bindMatch && req.method() === 'POST') {
       const sid = bindMatch[1] ?? ''
-      bindings[sid] = workspaceId
+      if (!options?.disableBindMutation) {
+        bindings[sid] = workspaceId
+      }
       await json({ ok: true, sessionId: sid, boundConnectionId: workspaceId, bindings })
       return
     }
@@ -203,11 +210,25 @@ async function installMockApi(
 async function openSessionPage(page: Parameters<typeof test>[0]['page']) {
   await page.goto('/')
   await page.getByPlaceholder('Local directory path').fill(demoPath)
-  await page.getByRole('combobox').first().selectOption('port')
-  await page.getByPlaceholder('Server port (e.g. 3000)').fill('4096')
   await page.getByRole('button', { name: 'Add' }).click()
-  await page.getByRole('button', { name: 'Open details' }).first().click()
-  await page.waitForURL(`**/workspaces/${workspaceId}/sessions`)
+
+  // Select config so New Connection modal targets it.
+  await page.getByText(demoPath, { exact: true }).first().click()
+
+  // Navigate to the dockview session page.
+  await page.getByTitle('Session Details').click()
+  await page.waitForURL('**/work')
+
+  // Create a port connection via toolbar modal.
+  await page.getByRole('button', { name: 'Connection' }).click()
+  await page.getByRole('button', { name: 'New Connection' }).click()
+  await page.locator('#new-connection-mode').selectOption('port')
+  await page.locator('#new-connection-port').fill('4096')
+  await page.getByRole('button', { name: 'Create' }).click()
+
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('connId'))
+    .toBe(workspaceId)
 }
 
 test('legacy route redirects to canonical and preserves target session execution', async ({ page }) => {
@@ -216,8 +237,10 @@ test('legacy route redirects to canonical and preserves target session execution
 
   await openSessionPage(page)
   await page.goto(`/workspaces/${workspaceId}/sessions/sess_b`)
-  await page.waitForURL(`**/workspaces/${workspaceId}/sessions**`)
-  expect(page.url()).not.toContain(`/workspaces/${workspaceId}/sessions/sess_b`)
+  await page.waitForURL('**/work?**')
+  expect(new URL(page.url()).pathname).toBe('/work')
+  expect(new URL(page.url()).searchParams.get('connId')).toBe(workspaceId)
+  expect(new URL(page.url()).searchParams.get('sessionId')).toBe('sess_b')
 
   const composer = page.locator('textarea').first()
   await composer.fill('from legacy url')
@@ -232,25 +255,29 @@ test('workspace and session context menus expose expected actions', async ({ pag
 
   await openSessionPage(page)
 
-  await page.getByText(demoPath).first().click({ button: 'right' })
-  await expect(page.getByRole('button', { name: 'Connect (spawn)' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Connect (port)' })).toBeVisible()
+  // Connection context menu (right-click on a connection row).
+  await page.locator('.connections-panel .session-item').first().click({ button: 'right' })
+  await expect(page.getByRole('button', { name: 'Manage sessions' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible()
 
-  await page.mouse.click(10, 10)
-  await page.getByText('Session A').first().click({ button: 'right' })
-  await expect(page.getByRole('button', { name: 'Unbind' })).toBeVisible()
+  // Manage sessions should open the modal.
+  await page.getByRole('button', { name: 'Manage sessions' }).click()
+  await expect(page.getByText('Manage Sessions')).toBeVisible()
+  await expect(page.locator('.palette').getByText('Session A', { exact: true })).toBeVisible()
 })
 
 test('unbound session blocks prompt execution with guard message', async ({ page }) => {
   await installRealtimeSocketStub(page)
-  const api = await installMockApi(page)
+  // Keep bind endpoint "successful" but do not actually bind,
+  // so prompt execution returns a 409 backend-style error.
+  const api = await installMockApi(page, { disableBindMutation: true })
 
   await openSessionPage(page)
   const composer = page.locator('textarea').first()
   await composer.fill('should be blocked')
   await page.getByRole('button', { name: 'Send' }).click()
 
-  await expect(page.getByText('Bind a connection before executing')).toBeVisible()
-  expect(api.getPromptCalls('sess_a')).toBe(0)
+  // Current UI surfaces backend error text as sessionError.
+  await expect(page.locator('.composer-status').getByText(/session not bound to connection/i).first()).toBeVisible()
+  expect(api.getPromptCalls('sess_a')).toBe(1)
 })

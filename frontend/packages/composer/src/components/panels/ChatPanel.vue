@@ -538,7 +538,7 @@ const emit = defineEmits<{
 
 const prompt = ref('');
 const showTools = ref(true);
-const showReasoning = ref(true);
+const showReasoning = ref(false);
 const expandTools = ref(false);
 const toolFilters = reactive<Record<string, boolean>>({});
 

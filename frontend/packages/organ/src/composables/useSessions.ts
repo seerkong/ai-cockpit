@@ -30,6 +30,8 @@ export interface UseSessionsDeps {
   };
   router: { replace: (to: { name: string; query: Record<string, unknown> }) => void };
   route: { query: Record<string, unknown> };
+  /** When true, avoid chat polling + post-send refresh. */
+  realtimeActive?: Ref<boolean>;
   messagePageLimit?: number;
   messagePollIntervalMs?: number;
 }
@@ -116,6 +118,7 @@ export function useSessions(deps: UseSessionsDeps) {
     pushNotification,
     sessionError,
     sessionWorking,
+    realtimeActive: deps.realtimeActive,
     messagePageLimit: deps.messagePageLimit,
     messagePollIntervalMs: deps.messagePollIntervalMs,
   };
@@ -304,6 +307,9 @@ export function useSessions(deps: UseSessionsDeps) {
     messages: chat.messages,
     messagesHasOlder: chat.messagesHasOlder,
     messagesLoadingOlder: chat.messagesLoadingOlder,
+    messagesFingerprint: chat.messagesFingerprint,
+    messagesLastProgressAtMs: chat.messagesLastProgressAtMs,
+    messagesRefreshOk: chat.messagesRefreshOk,
 
     // Chat functions (re-exported from useChat)
     stopMessagePolling: chat.stopMessagePolling,

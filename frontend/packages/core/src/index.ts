@@ -13,6 +13,7 @@ export {
 } from './lib/message-time';
 export { sessionTitleFor, type SessionLike } from './lib/session-title';
 export { computeSessionPrimaryStatus, type SessionPrimaryStatus } from './lib/session-status';
+export { computeMessagesFingerprint, hasRunningToolPart, type MessageWithPartsLike } from './lib/message-fingerprint';
 export {
   extractRawMessageAgent,
   extractRawMessagePreview,

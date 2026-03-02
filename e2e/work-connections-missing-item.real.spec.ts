@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 
-const RUN_REAL = process.env.RUN_REAL_E2E === '1';
+const RUN_REAL = process.env.AI_COCKPIT_REAL_E2E === '1';
 const WORKSPACE_PATH = 'E:\\ai-dev\\oh-my-opencode-slim';
 
-test.skip(!RUN_REAL, 'Set RUN_REAL_E2E=1 to run real backend reproduction');
+test.skip(!RUN_REAL, 'Set AI_COCKPIT_REAL_E2E=1 to run real backend reproduction');
 
 test('work: new connection appears in Connections pane (real)', async ({ page }) => {
   test.setTimeout(5 * 60_000);

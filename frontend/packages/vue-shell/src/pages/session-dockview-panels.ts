@@ -34,6 +34,10 @@ const chatInjects: InjectMap = {
   sessionActionStatus: { unwrapRef: true, defaultValue: null },
   messagesHasOlder: { unwrapRef: true, defaultValue: true },
   messagesLoadingOlder: { unwrapRef: true, defaultValue: false },
+  // (optional) watchdog/debug metadata
+  messagesFingerprint: { unwrapRef: true, defaultValue: '' },
+  messagesLastProgressAtMs: { unwrapRef: true, defaultValue: null },
+  messagesRefreshOk: { unwrapRef: true, defaultValue: true },
   onSendPrompt: {},
   onAbort: {},
   onForkSession: {},
@@ -110,6 +114,11 @@ const rightPanelInjects: InjectMap = {
   onBindCodumentTrack: {},
   codumentAutoRefreshEnabled: { unwrapRef: true, defaultValue: true },
   onUpdateCodumentAutoRefreshEnabled: { prop: 'onUpdate:codumentAutoRefreshEnabled' },
+
+  stalledAutoRecoverEnabled: { unwrapRef: true, defaultValue: true },
+  stalledAutoRecoverTimeoutMinutes: { unwrapRef: true, defaultValue: 5 },
+  onUpdateStalledAutoRecoverEnabled: { prop: 'onUpdate:stalledAutoRecoverEnabled' },
+  onUpdateStalledAutoRecoverTimeoutMinutes: { prop: 'onUpdate:stalledAutoRecoverTimeoutMinutes' },
 };
 
 const bottomPanelInjects: InjectMap = {
@@ -124,6 +133,7 @@ export const dockviewPanelComponents = {
   'right-review': createPanelWrapper(RightPanelComponent, rightPanelInjects, { mode: 'review' }, 'RightPanelReviewWrapper'),
   'right-context': createPanelWrapper(RightPanelComponent, rightPanelInjects, { mode: 'context' }, 'RightPanelContextWrapper'),
   'right-todo': createPanelWrapper(RightPanelComponent, rightPanelInjects, { mode: 'todo' }, 'RightPanelTodoWrapper'),
+  'right-settings': createPanelWrapper(RightPanelComponent, rightPanelInjects, { mode: 'settings' }, 'RightPanelSettingsWrapper'),
   'right-codument': createPanelWrapper(RightPanelComponent, rightPanelInjects, { mode: 'codument' }, 'RightPanelCodumentWrapper'),
   'bottom-terminal': createPanelWrapper(BottomPanelComponent, bottomPanelInjects, { mode: 'terminal' }, 'BottomPanelTerminalWrapper'),
   'bottom-console': createPanelWrapper(BottomPanelComponent, bottomPanelInjects, { mode: 'console' }, 'BottomPanelConsoleWrapper'),
