@@ -94,7 +94,12 @@
         <button class="secondary" @click="jumpToLatest">Jump to latest</button>
       </div>
 
-      <div v-for="msg in visibleMessages" :key="msg.info.id" :class="['message', msg.info.role]">
+      <div
+        v-for="msg in visibleMessages"
+        :key="msg.info.id"
+        v-memo="[msg.info.id, msg.parts, expandTools, mdReady, props.sessionWorking ? nowMs : 0]"
+        :class="['message', msg.info.role]"
+      >
         <div class="message-meta">
           <span class="muted">{{ msg.info.role }}</span>
           <span class="muted">{{ msg.info.id }}</span>
@@ -1062,15 +1067,51 @@ watch(
 
 const mdReady = ref(0);
 
+const markdownCache = new Map<string, string>();
+const highlightCache = new Map<string, string>();
+const MAX_RENDER_CACHE_ENTRIES = 500;
+
+function setBoundedCache(cache: Map<string, string>, key: string, value: string) {
+  if (cache.size >= MAX_RENDER_CACHE_ENTRIES) {
+    // Simple eviction: clear to avoid unbounded memory growth.
+    cache.clear();
+  }
+  cache.set(key, value);
+}
+
+watch(mdReady, () => {
+  markdownCache.clear();
+  highlightCache.clear();
+});
+
+watch(
+  () => props.sessionId,
+  () => {
+    markdownCache.clear();
+    highlightCache.clear();
+  },
+);
+
 function markdown(text: string) {
   // mdReady dependency forces recompute after libs load
   void mdReady.value;
-  return markdownToHtml(text);
+  if (!text) return '';
+  const cached = markdownCache.get(text);
+  if (cached != null) return cached;
+  const html = markdownToHtml(text);
+  setBoundedCache(markdownCache, text, html);
+  return html;
 }
 
 function highlight(text: string, lang?: string) {
   void mdReady.value;
-  return highlightCode(text, lang);
+  if (!text) return '';
+  const key = `${lang || ''}\n${text}`;
+  const cached = highlightCache.get(key);
+  if (cached != null) return cached;
+  const html = highlightCode(text, lang);
+  setBoundedCache(highlightCache, key, html);
+  return html;
 }
 
 function normalizeToolInput(input: MessagePart['state'] extends { input?: infer T } ? T : unknown) {
