@@ -15,6 +15,15 @@ type WorkspaceCapabilities = {
 };
 
 test('workspace-opened core flows (SSE + prompt + diff + permissions)', async ({ page }) => {
+  const pageErrors: string[] = [];
+  const consoleErrors: string[] = [];
+  page.on('pageerror', (err) => {
+    pageErrors.push(String(err?.message || err));
+  });
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text());
+  });
+
   const workspaceId = 'ws_1';
   const token = 'tok_1';
   const sessionId = 'sess_123';
@@ -362,6 +371,19 @@ test('workspace-opened core flows (SSE + prompt + diff + permissions)', async ({
     page.waitForResponse((resp) => resp.url().includes(messagesPath) && resp.status() === 200),
     page.goto(`/work?connId=${workspaceId}&sessionId=${sessionId}`),
   ]);
+
+  // Navigation regression guard: switching between /workspace and /work should not
+  // crash Dockview disposal (NotFoundError: removeChild) or leave the page blank.
+  await page.getByTitle('Workspaces').click();
+  await expect(page.getByText('Workspace path config')).toBeVisible();
+  await page.getByTitle('Session Details').click();
+  await expect(page.locator('.session-dockview')).toBeVisible();
+
+  // Allow pending unmount/mount tasks to surface errors.
+  await page.waitForTimeout(50);
+  const allErrors = `${pageErrors.join('\n')}\n${consoleErrors.join('\n')}`;
+  expect(allErrors).not.toContain('Failed to execute');
+  expect(allErrors).not.toContain('removeChild');
 
   // Ensure the client subscribed before we inject state.
   await page.waitForFunction(() => {

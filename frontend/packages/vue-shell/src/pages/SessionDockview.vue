@@ -926,7 +926,15 @@ watch(newConnectionRequested, () => {
   handleNewConnection();
 });
 
-onBeforeUnmount(() => { stopMessagePolling(); stopPermissionsPolling(); stopQuestionsPolling(); stopCodumentPolling(); dockApi.value?.dispose(); });
+onBeforeUnmount(() => {
+  stopMessagePolling();
+  stopPermissionsPolling();
+  stopQuestionsPolling();
+  stopCodumentPolling();
+  // DockviewVue disposes the underlying DockviewApi on unmount.
+  // Manually calling dispose here can double-dispose and trigger DOM NotFoundError.
+  dockApi.value = null;
+});
 
 onMounted(async () => {
   token.value = localStorage.getItem('auth-token');

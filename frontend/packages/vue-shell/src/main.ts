@@ -16,4 +16,15 @@ workspaces.hydrate();
 const workSettings = useWorkSettingsStore(pinia);
 workSettings.hydrate();
 
+// Prevent a known Dockview teardown edge-case from blanking the SPA.
+// This is a narrow filter: only suppresses dispose-time DOM NotFoundError.
+window.addEventListener('unhandledrejection', (event) => {
+  const reason: any = (event as any).reason;
+  const message = typeof reason?.message === 'string' ? reason.message : String(reason ?? '');
+  if (!message.includes('removeChild') || !message.includes('The node to be removed is not a child')) return;
+  const stack = typeof reason?.stack === 'string' ? reason.stack : '';
+  if (!stack.includes('dockview')) return;
+  event.preventDefault();
+});
+
 createApp(App).use(router).use(pinia).mount('#app');

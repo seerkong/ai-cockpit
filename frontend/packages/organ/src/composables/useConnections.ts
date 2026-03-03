@@ -220,18 +220,34 @@ export function useConnections(deps: UseConnectionsDeps) {
     connectionPool.value = Array.from(merged.values());
     connected.value = hasAnySuccess;
 
-    if (connId.value && merged.has(connId.value)) {
-      activeConnectionId.value = connId.value;
-      syncConnectionContext(connId.value);
+    // Prefer explicit route connId when valid.
+    const fromRoute = connId.value && merged.has(connId.value) ? connId.value : '';
+    // Prefer any already-selected active connection when still valid.
+    const fromLocal = activeConnectionId.value && merged.has(activeConnectionId.value) ? activeConnectionId.value : '';
+    // Prefer the persisted active workspace id (anchor connection id).
+    const fromStore = workspacesStore.activeWorkspaceId && merged.has(workspacesStore.activeWorkspaceId)
+      ? workspacesStore.activeWorkspaceId
+      : '';
+
+    const preferred = fromRoute || fromLocal || fromStore;
+    if (preferred && hasStoredTokenForConnection(preferred)) {
+      activeConnectionId.value = preferred;
+      syncConnectionContext(preferred);
       return;
     }
-    if (activeConnectionId.value && merged.has(activeConnectionId.value)) {
-      syncConnectionContext(activeConnectionId.value);
-      return;
+
+    // When navigating to /work without an explicit connId, pick a connection that we can
+    // actually authenticate against (has a stored token). Connection lists may include
+    // peer instances in the same directory that are not usable without a token.
+    const firstUsable = connectionPool.value.find((conn) => hasStoredTokenForConnection(conn.id));
+    const first = firstUsable || (preferred ? connectionPool.value.find((c) => c.id === preferred) : undefined) || connectionPool.value[0];
+    if (first) {
+      activeConnectionId.value = first.id;
+      syncConnectionContext(first.id);
+    } else {
+      token.value = null;
+      capabilities.value = null;
     }
-    const first = connectionPool.value[0];
-    if (first) { activeConnectionId.value = first.id; syncConnectionContext(first.id); }
-    else { token.value = null; capabilities.value = null; }
   }
 
   return {

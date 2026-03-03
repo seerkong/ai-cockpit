@@ -1,4 +1,4 @@
-import { markRaw, ref } from 'vue';
+import { markRaw, ref, onBeforeUnmount, getCurrentInstance } from 'vue';
 import type { DockviewApi, SerializedDockview } from 'dockview-core';
 import type { DockviewReadyEvent } from 'dockview-vue';
 
@@ -7,6 +7,9 @@ const LAYOUT_STORAGE_KEY = 'session-dockview-layout-v4';
 export function useDockviewLayout() {
   const dockApi = ref<DockviewApi | null>(null);
   const bottomPanelOpen = ref(true);
+
+  let layoutChangeDispose: (() => void) | null = null;
+  let pendingRaf: number | null = null;
 
   const COLLAPSED_BOTTOM_HEIGHT = 32;
   let bottomExpandedHeight = 0;
@@ -153,7 +156,10 @@ export function useDockviewLayout() {
       position: { referencePanel: 'bottom-terminal', direction: 'within' },
     });
 
-    requestAnimationFrame(() => {
+    if (pendingRaf != null) cancelAnimationFrame(pendingRaf);
+    pendingRaf = requestAnimationFrame(() => {
+      // If the component unmounted or the api was replaced, bail.
+      if (dockApi.value !== api) return;
       api.getPanel('connections')?.api.setSize({ width: sideWidth });
       api.getPanel('right-todo')?.api.setSize({ width: sideWidth });
       api.getPanel('right-todo')?.api.setActive();
@@ -170,10 +176,32 @@ export function useDockviewLayout() {
       createDefaultLayout(event.api);
     }
 
-    event.api.onDidLayoutChange(() => {
-      saveLayout();
-    });
+    // Keep the unsubscribe handle so we can avoid callbacks racing with unmount/dispose.
+    try {
+      const maybe = (event.api as any).onDidLayoutChange?.(() => {
+        saveLayout();
+      });
+      layoutChangeDispose = typeof maybe === 'function'
+        ? maybe
+        : (maybe && typeof maybe.dispose === 'function')
+          ? () => maybe.dispose()
+          : null;
+    } catch {
+      layoutChangeDispose = null;
+    }
   };
+
+  if (getCurrentInstance()) {
+    onBeforeUnmount(() => {
+      if (pendingRaf != null) {
+        cancelAnimationFrame(pendingRaf);
+        pendingRaf = null;
+      }
+      try { layoutChangeDispose?.(); } catch { /* ignore */ }
+      layoutChangeDispose = null;
+      dockApi.value = null;
+    });
+  }
 
   return {
     dockApi,

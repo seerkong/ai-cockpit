@@ -25,8 +25,9 @@ const onReady = (event: DockviewReadyEvent) => {
   });
 };
 
+// DockviewVue disposes the DockviewApi on unmount.
 onBeforeUnmount(() => {
-  dockApi.value?.dispose();
+  dockApi.value = null;
 });
 </script>
 

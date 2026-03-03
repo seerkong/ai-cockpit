@@ -34,6 +34,7 @@ export interface UseConnectionsDeps {
   route: { query: Record<string, unknown> };
   router: { replace: (to: { name: string; query: Record<string, unknown> }) => void };
   workspacesStore: {
+    activeWorkspaceId?: string;
     byId: Record<string, { workspace: { capabilities?: Record<string, boolean>; directory?: string }; token: string }>;
     tokenFor: (id: string) => string;
     forget: (id: string) => void;

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useWorkspacesStore } from '@frontend/organ';
 
 
 /**
@@ -10,22 +11,30 @@ import { useRoute, useRouter } from 'vue-router';
 
 const route = useRoute();
 const router = useRouter();
+const workspacesStore = useWorkspacesStore();
+workspacesStore.hydrate();
 
-// 活动栏项目
 const items = [
-  { 
-    id: 'workspaces', 
+  {
+    id: 'workspaces',
     icon: 'workspaces',
     title: 'Workspaces',
-    route: { name: 'workspace' }
   },
-  { 
-    id: 'session', 
+  {
+    id: 'session',
     icon: 'session',
     title: 'Session Details',
-    route: { name: 'work' }
   },
-];
+] as const;
+
+const sessionRoute = computed(() => {
+  const cid = workspacesStore.activeWorkspaceId || workspacesStore.list[0]?.workspace.id || '';
+  const sid = cid ? workspacesStore.lastSessionFor(cid) : '';
+  const query: Record<string, string> = {};
+  if (cid) query.connId = cid;
+  if (sid) query.sessionId = sid;
+  return { name: 'work', query };
+});
 
 const activeItem = computed(() => {
   if (route.name === 'workspace') return 'workspaces';
@@ -34,7 +43,11 @@ const activeItem = computed(() => {
 });
 
 const navigateTo = (item: typeof items[0]) => {
-  router.push(item.route);
+  if (item.id === 'workspaces') {
+    router.push({ name: 'workspace' });
+    return;
+  }
+  router.push(sessionRoute.value);
 };
 </script>
 
