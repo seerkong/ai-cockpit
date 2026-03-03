@@ -450,6 +450,54 @@ export function createFetchHandler(registry: WorkspaceRegistryLike, store?: Sqli
     if (url.pathname === '/api/v1/workspaces/test-connection' && req.method === 'POST') return handleWorkspacesTestConnection(registry, req)
     if (url.pathname === '/api/v1/workspaces' && req.method === 'GET') return jsonResponse({ workspaces: registry.list().map(workspaceResponse) })
 
+    const defaultsMatch = url.pathname.match(/^\/api\/v1\/workspaces\/([^/]+)\/defaults$/)
+    if (defaultsMatch) {
+      const workspaceId = defaultsMatch[1] ?? ''
+      const wsOrResp = getWorkspaceOrResponse(registry, req, workspaceId)
+      if (wsOrResp instanceof Response) return wsOrResp
+      // Defaults are used by the chat composer; require the same capability gate as chat.
+      const capabilityResp = requireCapability(wsOrResp, 'chat')
+      if (capabilityResp) return capabilityResp
+      if (req.method !== 'GET') return jsonResponse({ error: 'method not allowed' }, 405)
+
+      // Proxy to OpenCode global config, but only return non-secret fields.
+      let payload: unknown = null
+      try {
+        // Avoid passing workspace-scoped query params upstream.
+        const cleanUrl = new URL(req.url)
+        cleanUrl.search = ''
+        const upstreamReq = new Request(cleanUrl.toString(), { method: 'GET', headers: req.headers, signal: req.signal })
+        const upstream = await proxyWorkspace(wsOrResp, upstreamReq, '/global/config')
+        if (!upstream.ok) {
+          const text = await upstream.text().catch(() => '')
+          return jsonResponse({ error: 'upstream config failed', status: upstream.status, body: text }, 502)
+        }
+        payload = await upstream.json().catch(() => null)
+      } catch {
+        payload = null
+      }
+
+      const obj = payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : null
+
+      const agentRaw = obj?.default_agent ?? obj?.defaultAgent
+      const agent = typeof agentRaw === 'string' ? agentRaw : ''
+
+      const modelRaw = obj?.model
+      let model: { providerID: string; modelID: string } | null = null
+      if (typeof modelRaw === 'string') {
+        const idx = modelRaw.indexOf('/')
+        if (idx !== -1) {
+          const providerID = modelRaw.slice(0, idx).trim()
+          const modelID = modelRaw.slice(idx + 1).trim()
+          if (providerID && modelID) model = { providerID, modelID }
+        }
+      }
+
+      return jsonResponse({ agent, model })
+    }
+
     const eventsMatch = url.pathname.match(/^\/api\/v1\/workspaces\/([^/]+)\/events$/)
     if (eventsMatch && req.method === 'GET') {
       const wsOrResp = getWorkspaceOrResponse(registry, req, eventsMatch[1] ?? '')

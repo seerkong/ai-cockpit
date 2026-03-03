@@ -27,6 +27,7 @@ function createStubProvider(directory: string, overrides: Partial<ProviderCapabi
       const method = req.method.toUpperCase()
       const bodyText = method === 'GET' || method === 'HEAD' ? undefined : await req.text().catch(() => '')
       calls.push({ method, targetPath, url: req.url, bodyText })
+      if (targetPath === '/global/config' && req.method === 'GET') return jsonOk({ model: 'openai/gpt-4o', default_agent: 'build' })
       if (targetPath === '/session' && req.method === 'GET') return jsonOk([{ id: 'sess_1' }, { id: 'sess_2' }])
       if (targetPath === '/session' && req.method === 'POST') return jsonOk({ id: 'sess_new' })
       const messageListMatch = targetPath.match(/^\/session\/([^/]+)\/message$/)
@@ -387,6 +388,18 @@ describe('/api/v1/workspaces/{workspaceId}/models', () => {
     const ws = await registry.connectLocal('C:/repo', { autoApprove: false })
     const res = await fetchHandler(new Request(`http://localhost/api/v1/workspaces/${ws.id}/models`, { headers: { 'x-proto-session': ws.token } }))
     expect(res.status).toBe(200); expect(ws.provider.calls.at(-1)?.targetPath).toBe('/provider')
+  })
+})
+
+describe('/api/v1/workspaces/{workspaceId}/defaults', () => {
+  test('returns default agent and model parsed from upstream config', async () => {
+    const registry = new FakeWorkspaceRegistry(); const fetchHandler = createFetchHandler(registry)
+    const ws = await registry.connectLocal('C:/repo', { autoApprove: false })
+    const res = await fetchHandler(new Request(`http://localhost/api/v1/workspaces/${ws.id}/defaults`, { headers: { 'x-proto-session': ws.token } }))
+    expect(res.status).toBe(200)
+    const data = await res.json() as any
+    expect(data).toEqual({ agent: 'build', model: { providerID: 'openai', modelID: 'gpt-4o' } })
+    expect(ws.provider.calls.at(-1)?.targetPath).toBe('/global/config')
   })
 })
 

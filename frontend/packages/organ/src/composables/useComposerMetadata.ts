@@ -12,6 +12,11 @@ export type Capabilities = {
   [key: string]: unknown;
 };
 
+export type ComposerDefaults = {
+  agent: string;
+  model: { providerID: string; modelID: string } | null;
+};
+
 type AgentOption = {
   name: string;
   description?: string;
@@ -173,6 +178,18 @@ export function useComposerMetadata({
   const agentOptions = ref<AgentOption[]>([]);
   const commandOptions = ref<CommandOption[]>([]);
   const modelOptions = ref<ModelOption[]>([]);
+  const defaults = ref<ComposerDefaults>({ agent: '', model: null });
+
+  function asDefaults(payload: unknown): ComposerDefaults {
+    const root = asObject(payload);
+    if (!root) return { agent: '', model: null };
+    const agent = asString(root.agent);
+    const modelRaw = asObject(root.model);
+    const providerID = asString(modelRaw?.providerID || modelRaw?.providerId || modelRaw?.provider);
+    const modelID = asString(modelRaw?.modelID || modelRaw?.modelId || modelRaw?.id);
+    const model = providerID && modelID ? { providerID, modelID } : null;
+    return { agent, model };
+  }
 
   function defaultCapabilities() {
     return createDefaultCapabilities();
@@ -181,6 +198,19 @@ export function useComposerMetadata({
   async function refreshComposerMetadata(connectionId: string) {
     const caps = capabilities.value;
     if (!caps) return;
+
+    // Defaults are optional; keep best-effort and non-blocking.
+    try {
+      const resp = await apiFetchForConnection(connectionId, `/api/v1/workspaces/${connectionId}/defaults`);
+      if (resp.ok) {
+        const payload = await resp.json().catch(() => null);
+        defaults.value = asDefaults(payload);
+      } else {
+        defaults.value = { agent: '', model: null };
+      }
+    } catch {
+      defaults.value = { agent: '', model: null };
+    }
 
     if (caps.agents) {
       try {
@@ -230,6 +260,7 @@ export function useComposerMetadata({
     agentOptions,
     commandOptions,
     modelOptions,
+    defaults,
     defaultCapabilities,
     refreshComposerMetadata,
   };

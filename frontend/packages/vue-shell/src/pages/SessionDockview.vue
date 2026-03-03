@@ -67,6 +67,7 @@ const {
   agentOptions,
   commandOptions,
   modelOptions,
+  defaults: composerDefaults,
   defaultCapabilities,
   refreshComposerMetadata,
 } = useComposerMetadata({ apiFetchForConnection: apiFetchProxy });
@@ -437,6 +438,7 @@ provide('sessionError', sessionError);
 provide('agentOptions', agentOptions);
 provide('modelOptions', modelOptions);
 provide('commandOptions', commandOptions);
+provide('composerDefaults', composerDefaults);
 provide('sessionShared', sessionShared);
 provide('sessionShareUrl', sessionShareUrl);
 provide('sessionActionWorking', sessionActionWorking);

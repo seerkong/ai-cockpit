@@ -240,9 +240,9 @@
             </svg>
           </button>
 
-          <select v-if="capabilities?.agents" v-model="selectedAgent" :disabled="!agentOptions.length || composerBlocked">
+          <select v-if="capabilities?.agents" v-model="selectedAgent" :disabled="!selectableAgentOptions.length || composerBlocked">
             <option value="">(agent)</option>
-            <option v-for="a in agentOptions" :key="a.name" :value="a.name">{{ a.name }}</option>
+            <option v-for="a in selectableAgentOptions" :key="a.name" :value="a.name">{{ a.name }}</option>
           </select>
 
           <button
@@ -441,6 +441,11 @@ type ModelOption = {
   label: string;
 };
 
+type ComposerDefaults = {
+  agent: string;
+  model: { providerID: string; modelID: string } | null;
+};
+
 type ComposerOption = {
   key: string;
   title: string;
@@ -480,6 +485,7 @@ export interface Props {
   agentOptions: AgentOption[];
   modelOptions: ModelOption[];
   commandOptions: CommandOption[];
+  composerDefaults?: ComposerDefaults;
   sessionShared: boolean;
   sessionShareUrl: string;
   sessionActionWorking: boolean;
@@ -507,6 +513,7 @@ const props = withDefaults(defineProps<Props>(), {
   agentOptions: () => [],
   modelOptions: () => [],
   commandOptions: () => [],
+  composerDefaults: () => ({ agent: '', model: null }),
   sessionShared: false,
   sessionShareUrl: '',
   sessionActionWorking: false,
@@ -514,6 +521,75 @@ const props = withDefaults(defineProps<Props>(), {
   messagesHasOlder: true,
   messagesLoadingOlder: false,
 });
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function findSessionBoundAgent(messages: MessageWithParts[]): string {
+  let fallback = '';
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    const info = asObject(msg?.info);
+    if (!info) continue;
+    const agent = asString(info.agent);
+    if (!agent) continue;
+    if (!fallback) fallback = agent;
+    const role = asString(info.role);
+    if (role === 'user') return agent;
+  }
+  if (fallback) return fallback;
+  return '';
+}
+
+function findSessionBoundModelKey(messages: MessageWithParts[]): string {
+  let fallback = '';
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    const info = asObject(msg?.info);
+    if (!info) continue;
+    const model = asObject(info.model);
+    if (!model) continue;
+    const providerID = asString(model.providerID || model.providerId || model.provider);
+    const modelID = asString(model.modelID || model.modelId || model.id);
+    if (!providerID || !modelID) continue;
+    const key = `${providerID}:${modelID}`;
+    if (!fallback) fallback = key;
+    const role = asString(info.role);
+    if (role === 'user') return key;
+  }
+  if (fallback) return fallback;
+  return '';
+}
+
+const selectableAgentOptions = computed(() => {
+  const all = (props.agentOptions ?? []).filter((a) => !a.hidden);
+  const main = all.filter((a) => {
+    const tag = (a.mode || '').toLowerCase();
+    return tag === 'primary' || tag === 'main';
+  });
+  // Upstream may omit the tag; fall back to all so the UI stays usable.
+  return main.length ? main : all;
+});
+
+function pickValidAgent(candidate: string): string {
+  if (!candidate) return '';
+  return selectableAgentOptions.value.some((a) => a.name === candidate) ? candidate : '';
+}
+
+function pickValidModelKey(candidate: string): string {
+  if (!candidate) return '';
+  const parsed = parseSelectedModel(candidate);
+  if (!parsed) return '';
+  return props.modelOptions.some((m) => m.providerID === parsed.providerID && m.modelID === parsed.modelID)
+    ? candidate
+    : '';
+}
 
 type PromptPart =
   | { type: 'text'; text: string }
@@ -720,6 +796,82 @@ const composerMode = ref<'normal' | 'shell'>('normal');
 const selectedAgent = ref('');
 const selectedModelKey = ref('');
 
+const autoSettingSelection = ref(false);
+const agentTouched = ref(false);
+const modelTouched = ref(false);
+
+watch(selectedAgent, () => {
+  if (autoSettingSelection.value) return;
+  agentTouched.value = true;
+});
+
+watch(selectedModelKey, () => {
+  if (autoSettingSelection.value) return;
+  modelTouched.value = true;
+});
+
+const hydratedSessionId = ref('');
+watch(
+  [() => props.sessionId, () => props.messages, () => props.agentOptions, () => props.modelOptions, () => props.composerDefaults],
+  () => {
+    const sid = props.sessionId;
+    if (!sid) return;
+
+    // When switching sessions, re-hydrate selection from that session.
+    if (hydratedSessionId.value !== sid) {
+      hydratedSessionId.value = sid;
+      selectedAgent.value = '';
+      selectedModelKey.value = '';
+      agentTouched.value = false;
+      modelTouched.value = false;
+    }
+
+    const sessionAgent = pickValidAgent(findSessionBoundAgent(props.messages));
+    const sessionModelKey = pickValidModelKey(findSessionBoundModelKey(props.messages));
+
+    const defaultAgent = pickValidAgent(asString(props.composerDefaults?.agent));
+    const defaultModelKey = (() => {
+      const m = props.composerDefaults?.model;
+      if (!m?.providerID || !m.modelID) return '';
+      return pickValidModelKey(`${m.providerID}:${m.modelID}`);
+    })();
+
+    const fallbackAgent = selectableAgentOptions.value[0]?.name || '';
+    const fallbackModelKey = props.modelOptions.length
+      ? `${props.modelOptions[0]!.providerID}:${props.modelOptions[0]!.modelID}`
+      : '';
+
+    const desiredAgent = sessionAgent || defaultAgent || fallbackAgent;
+    const desiredModelKey = sessionModelKey || defaultModelKey || fallbackModelKey;
+
+    const currentAgent = pickValidAgent(selectedAgent.value);
+    if (!currentAgent) agentTouched.value = false;
+    const currentModel = pickValidModelKey(selectedModelKey.value);
+    if (!currentModel) modelTouched.value = false;
+
+    if (sessionAgent && !agentTouched.value && sessionAgent !== currentAgent) {
+      autoSettingSelection.value = true;
+      selectedAgent.value = sessionAgent;
+      queueMicrotask(() => { autoSettingSelection.value = false; });
+    } else if (!currentAgent && desiredAgent) {
+      autoSettingSelection.value = true;
+      selectedAgent.value = desiredAgent;
+      queueMicrotask(() => { autoSettingSelection.value = false; });
+    }
+
+    if (sessionModelKey && !modelTouched.value && sessionModelKey !== currentModel) {
+      autoSettingSelection.value = true;
+      selectedModelKey.value = sessionModelKey;
+      queueMicrotask(() => { autoSettingSelection.value = false; });
+    } else if (!currentModel && desiredModelKey) {
+      autoSettingSelection.value = true;
+      selectedModelKey.value = desiredModelKey;
+      queueMicrotask(() => { autoSettingSelection.value = false; });
+    }
+  },
+  { immediate: true, deep: false },
+);
+
 const modelPopoverOpen = ref(false);
 const selectedModelButtonLabel = computed(() => {
   const key = selectedModelKey.value;
@@ -863,7 +1015,11 @@ const composerOptions = computed<ComposerOption[]>(() => {
   const q = composerQuery.value.toLowerCase();
   if (composerPopover.value === 'at') {
     return props.agentOptions
-      .filter((a) => !a.hidden && a.mode !== 'primary')
+      .filter((a) => {
+        if (a.hidden) return false;
+        const tag = (a.mode || '').toLowerCase();
+        return tag !== 'primary' && tag !== 'main';
+      })
       .filter((a) => !q || a.name.toLowerCase().includes(q))
       .slice(0, 10)
       .map((a) => ({

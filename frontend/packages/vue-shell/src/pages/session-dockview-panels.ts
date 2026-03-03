@@ -28,6 +28,7 @@ const chatInjects: InjectMap = {
   agentOptions: { unwrapRef: true, defaultValue: [] },
   modelOptions: { unwrapRef: true, defaultValue: [] },
   commandOptions: { unwrapRef: true, defaultValue: [] },
+  composerDefaults: { unwrapRef: true, defaultValue: { agent: '', model: null } },
   sessionShared: { unwrapRef: true, defaultValue: false },
   sessionShareUrl: { unwrapRef: true, defaultValue: '' },
   sessionActionWorking: { unwrapRef: true, defaultValue: false },
