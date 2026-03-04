@@ -55,6 +55,17 @@ export function useDockviewLayout() {
       try {
         const hasSettings = Boolean(api.getPanel('right-settings'));
         const hasTodo = Boolean(api.getPanel('right-todo'));
+        const hasCodument = Boolean(api.getPanel('right-codument'));
+
+        if (!hasCodument && hasTodo) {
+          api.addPanel({
+            id: 'right-codument',
+            component: 'right-codument',
+            title: 'Codument',
+            position: { referencePanel: 'right-todo', direction: 'within' },
+          });
+        }
+
         if (!hasSettings && hasTodo) {
           api.addPanel({
             id: 'right-settings',
@@ -97,13 +108,20 @@ export function useDockviewLayout() {
       initialHeight: centerTopHeight,
     });
 
-    // Right panel tab order: Todo -> Settings -> Context -> Review -> Files -> Codument
+    // Right panel tab order: Todo -> Codument -> Settings -> Context -> Review -> Files
     api.addPanel({
       id: 'right-todo',
       component: 'right-todo',
       title: 'Todo',
       position: { referencePanel: 'chat', direction: 'right' },
       initialWidth: sideWidth,
+    });
+
+    api.addPanel({
+      id: 'right-codument',
+      component: 'right-codument',
+      title: 'Codument',
+      position: { referencePanel: 'right-todo', direction: 'within' },
     });
 
     api.addPanel({
@@ -131,13 +149,6 @@ export function useDockviewLayout() {
       id: 'right-files',
       component: 'right-files',
       title: 'Files',
-      position: { referencePanel: 'right-todo', direction: 'within' },
-    });
-
-    api.addPanel({
-      id: 'right-codument',
-      component: 'right-codument',
-      title: 'Codument',
       position: { referencePanel: 'right-todo', direction: 'within' },
     });
 

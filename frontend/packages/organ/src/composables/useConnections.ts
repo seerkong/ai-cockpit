@@ -27,6 +27,13 @@ export function useConnections(deps: UseConnectionsDeps) {
   const connected = ref(false);
   const connectionCreateInFlightKeys = new Set<string>();
 
+  function normalizeDirectoryPath(input: string): string {
+    const trimmed = input.trim();
+    if (!trimmed) return '';
+    if (trimmed === '/') return '/';
+    return trimmed.replace(/\/+$/, '');
+  }
+
   // Keep connection statuses fresh (Active should reflect real-time session activity).
   const CONNECTION_POLL_INTERVAL_MS = 2000;
   let connectionPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -220,6 +227,21 @@ export function useConnections(deps: UseConnectionsDeps) {
     connectionPool.value = Array.from(merged.values());
     connected.value = hasAnySuccess;
 
+    // Prefer a connection that matches the currently selected workspace config path.
+    // Workspace selection uses the configs store (id -> directory path), while connections
+    // are keyed by connection/workspace runtime ids. Without this mapping, /work may
+    // silently stay on the last active connection and show Codument tracks for the wrong directory.
+    const selectedConfigId = deps.workspaceId.value || '';
+    const selectedConfigPath = selectedConfigId
+      ? normalizeDirectoryPath(deps.configsStore.byId[selectedConfigId]?.path || '')
+      : '';
+    const fromWorkspaceSelection = selectedConfigPath
+      ? (connectionPool.value.find((conn) => {
+        if (!hasStoredTokenForConnection(conn.id)) return false;
+        return normalizeDirectoryPath(conn.directory) === selectedConfigPath;
+      })?.id || '')
+      : '';
+
     // Prefer explicit route connId when valid.
     const fromRoute = connId.value && merged.has(connId.value) ? connId.value : '';
     // Prefer any already-selected active connection when still valid.
@@ -229,10 +251,19 @@ export function useConnections(deps: UseConnectionsDeps) {
       ? workspacesStore.activeWorkspaceId
       : '';
 
-    const preferred = fromRoute || fromLocal || fromStore;
+    const preferred = fromRoute || fromWorkspaceSelection || fromLocal || fromStore;
     if (preferred && hasStoredTokenForConnection(preferred)) {
       activeConnectionId.value = preferred;
       syncConnectionContext(preferred);
+      return;
+    }
+
+    // If the user selected a workspace config path but we don't have a usable (token-backed)
+    // connection for it yet, don't auto-fallback to a different directory.
+    if (selectedConfigPath && !fromWorkspaceSelection) {
+      activeConnectionId.value = '';
+      token.value = null;
+      capabilities.value = null;
       return;
     }
 

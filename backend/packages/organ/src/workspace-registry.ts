@@ -2,6 +2,7 @@ import { OpenCodeClient } from './opencode-client'
 import { spawnOpenCodeServer, type OpenCodeServerInfo } from './opencode-server'
 import { OpenCodeLocalProvider } from './providers/opencode-local'
 import { OpenCodeLocalPortProvider } from './providers/opencode-local-port'
+import { OpenCodeLazyProvider } from './providers/opencode-lazy'
 import type { WorkspaceProvider } from '@backend/core'
 import { SqliteStore, ulid } from '@backend/core'
 
@@ -15,7 +16,7 @@ export type WorkspaceState = {
   serverPort?: number
   provider: WorkspaceProvider
   server?: OpenCodeServerInfo
-  client: OpenCodeClient
+  client: { stopEventStream(): void }
   eventControllers: Set<AbortController>
 }
 
@@ -248,11 +249,48 @@ export class WorkspaceRegistry {
       .sort((a, b) => a.createdAt - b.createdAt)
   }
 
+  private restoreDirectoryGroupFromStore(directory: string) {
+    const store = this.store
+    const trimmed = directory.trim()
+    if (!store || !trimmed) return
+
+    const rows = store.listConnectionsByDirectory(trimmed)
+    for (const row of rows) {
+      if (this.byId.has(row.id)) continue
+      const mode = row.connectionMode === 'port' ? 'port' : 'spawn'
+      const serverPort = mode === 'port' && typeof row.serverPort === 'number' ? row.serverPort : undefined
+
+      const provider = new OpenCodeLazyProvider({
+        directory: row.directory,
+        mode,
+        serverPort,
+        autoApprove: row.autoApprove,
+      })
+
+      const ws: WorkspaceState = {
+        id: row.id,
+        token: row.token,
+        directory: row.directory,
+        createdAt: row.createdAt,
+        connectionMode: mode,
+        serverPort,
+        provider,
+        client: { stopEventStream() {} },
+        eventControllers: new Set(),
+      }
+
+      this.byId.set(ws.id, ws)
+      this.byToken.set(ws.token, ws)
+    }
+  }
+
   async connectLocal(directory: string, options?: { autoApprove?: boolean; forceNew?: boolean }) {
     const trimmed = directory.trim()
     if (!trimmed) {
       throw new Error('workspace required')
     }
+
+    const autoApprove = Boolean(options?.autoApprove)
 
     if (!options?.forceNew) {
       const existing = this.listSpawnConnections(trimmed)
@@ -263,18 +301,47 @@ export class WorkspaceRegistry {
         }
         this.ensureConnectionSeq(primary)
         this.ensureDirectoryStatusStream(primary.directory)
+        try {
+          this.store?.upsertConnection({
+            id: primary.id,
+            token: primary.token,
+            directory: primary.directory,
+            connectionMode: 'spawn',
+            serverPort: null,
+            autoApprove,
+            createdAt: primary.createdAt,
+            lastUsedAt: Date.now(),
+          })
+        } catch {
+          // ignore
+        }
         return primary
       }
     }
 
-    if (this.store) {
-      this.store.upsertWorkspace(trimmed)
+    try {
+      this.store?.upsertWorkspace(trimmed)
+    } catch {
+      // ignore
     }
-    const id = ulid()
-    const token = ulid()
+
+    let id = ulid()
+    let token = ulid()
+    let createdAt = Date.now()
+
+    // When reconnecting the same directory endpoint, prefer the persisted connection id+token
+    // so deep links (/work?connId=...) keep working across backend restarts.
+    if (this.store && !options?.forceNew) {
+      const restored = this.store.getConnectionByEndpoint({ directory: trimmed, connectionMode: 'spawn', autoApprove })
+      if (restored) {
+        id = restored.id
+        token = restored.token
+        createdAt = restored.createdAt
+      }
+    }
     const connectionSeq = ++this.nextConnectionSeq
 
-    const server = await spawnOpenCodeServer(trimmed, { autoApprove: options?.autoApprove })
+    const server = await spawnOpenCodeServer(trimmed, { autoApprove })
     const client = new OpenCodeClient({
       baseUrl: server.baseUrl,
       directory: trimmed,
@@ -296,7 +363,7 @@ export class WorkspaceRegistry {
       id,
       token,
       directory: trimmed,
-      createdAt: Date.now(),
+      createdAt,
       connectionSeq,
       connectionMode: 'spawn',
       provider,
@@ -307,6 +374,20 @@ export class WorkspaceRegistry {
 
     this.byId.set(id, ws)
     this.byToken.set(token, ws)
+    try {
+      this.store?.upsertConnection({
+        id: ws.id,
+        token: ws.token,
+        directory: ws.directory,
+        connectionMode: 'spawn',
+        serverPort: null,
+        autoApprove,
+        createdAt: ws.createdAt,
+        lastUsedAt: Date.now(),
+      })
+    } catch {
+      // ignore
+    }
     this.ensureDirectoryStatusStream(ws.directory)
     return ws
   }
@@ -330,15 +411,42 @@ export class WorkspaceRegistry {
         }
         this.ensureConnectionSeq(primary)
         this.ensureDirectoryStatusStream(primary.directory)
+        try {
+          this.store?.upsertConnection({
+            id: primary.id,
+            token: primary.token,
+            directory: primary.directory,
+            connectionMode: 'port',
+            serverPort: p,
+            autoApprove: false,
+            createdAt: primary.createdAt,
+            lastUsedAt: Date.now(),
+          })
+        } catch {
+          // ignore
+        }
         return primary
       }
     }
 
-    if (this.store) {
-      this.store.upsertWorkspace(trimmed)
+    try {
+      this.store?.upsertWorkspace(trimmed)
+    } catch {
+      // ignore
     }
-    const id = ulid()
-    const token = ulid()
+
+    let id = ulid()
+    let token = ulid()
+    let createdAt = Date.now()
+
+    if (this.store && !options?.forceNew) {
+      const restored = this.store.getConnectionByEndpoint({ directory: trimmed, connectionMode: 'port', serverPort: p })
+      if (restored) {
+        id = restored.id
+        token = restored.token
+        createdAt = restored.createdAt
+      }
+    }
     const connectionSeq = ++this.nextConnectionSeq
 
     const baseUrl = `http://127.0.0.1:${p}`
@@ -353,7 +461,7 @@ export class WorkspaceRegistry {
       id,
       token,
       directory: trimmed,
-      createdAt: Date.now(),
+      createdAt,
       connectionSeq,
       connectionMode: 'port',
       serverPort: p,
@@ -364,6 +472,20 @@ export class WorkspaceRegistry {
 
     this.byId.set(id, ws)
     this.byToken.set(token, ws)
+    try {
+      this.store?.upsertConnection({
+        id: ws.id,
+        token: ws.token,
+        directory: ws.directory,
+        connectionMode: 'port',
+        serverPort: p,
+        autoApprove: false,
+        createdAt: ws.createdAt,
+        lastUsedAt: Date.now(),
+      })
+    } catch {
+      // ignore
+    }
     this.ensureDirectoryStatusStream(ws.directory)
     return ws
   }
@@ -480,6 +602,21 @@ export class WorkspaceRegistry {
   }
 
   getByToken(token: string) {
+    const existing = this.byToken.get(token)
+    if (existing) return existing
+
+    const store = this.store
+    if (!store || !token) return undefined
+
+    const row = store.getConnectionByToken(token)
+    if (!row) return undefined
+
+    this.restoreDirectoryGroupFromStore(row.directory)
+    try {
+      store.touchConnectionLastUsedAt(row.id)
+    } catch {
+      // ignore
+    }
     return this.byToken.get(token)
   }
 
@@ -511,6 +648,11 @@ export class WorkspaceRegistry {
 
     this.byId.delete(id)
     this.byToken.delete(ws.token)
+    try {
+      this.store?.deleteConnection(id)
+    } catch {
+      // ignore
+    }
     this.removeConnectionBindings(ws.directory, id)
 
     const stillHasDirectoryConnections = Array.from(this.byId.values()).some((entry) => entry.directory === directory)

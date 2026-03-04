@@ -117,11 +117,11 @@ describe('useDockviewLayout', () => {
       'connections',
       'chat',
       'right-todo',
+      'right-codument',
       'right-settings',
       'right-context',
       'right-review',
       'right-files',
-      'right-codument',
       'bottom-terminal',
       'bottom-console',
     ]);

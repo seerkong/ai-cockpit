@@ -1076,8 +1076,7 @@ function getTodoContent(todo: TodoItem): string {
 
 .codument-status-symbol {
   flex-shrink: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 

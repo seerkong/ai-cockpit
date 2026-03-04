@@ -764,7 +764,9 @@ async function handleRefreshCodumentTracks() {
     } else if (defaultId && hasTrack(defaultId)) {
       selectedCodumentTrackId.value = defaultId;
     } else {
-      selectedCodumentTrackId.value = '';
+      // If there are tracks but none match our selection heuristics, default to the
+      // first track so the Codument tab is usable without manual selection.
+      selectedCodumentTrackId.value = tracks[0]?.trackId || '';
     }
   } catch (err) {
     codumentTracksError.value = err instanceof Error ? err.message : 'Failed to load codument tracks.';
@@ -938,8 +940,89 @@ onBeforeUnmount(() => {
 
 onMounted(async () => {
   token.value = localStorage.getItem('auth-token');
+
+  async function tryBootstrapDeepLinkConnection(workspaceConnId: string): Promise<boolean> {
+    const id = String(workspaceConnId || '').trim();
+    if (!id) return false;
+
+    // If we already have a token for this connId, nothing to do.
+    if (workspacesStore.tokenFor(id) || connectionTokens[id]) return true;
+
+    // If the backend already has the workspace runtime in memory (listed by id),
+    // we can re-attach by calling connect with its directory.
+    try {
+      const listResp = await fetch('/api/v1/workspaces');
+      if (!listResp.ok) return false;
+      const listData = (await listResp.json().catch(() => null)) as { workspaces?: Array<{ id?: string; directory?: string }> } | null;
+      const entry = listData?.workspaces?.find((w) => w?.id === id);
+      const directory = typeof entry?.directory === 'string' ? entry.directory.trim() : '';
+      if (!directory) return false;
+
+      const connectResp = await fetch('/api/v1/workspaces/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'opencode.local', directory, autoApprove: true }),
+      });
+      if (!connectResp.ok) return false;
+      const data = (await connectResp.json().catch(() => null)) as {
+        workspace?: {
+          id?: string;
+          provider?: string;
+          directory?: string;
+          status?: 'connecting' | 'ready' | 'error';
+          createdAt?: number;
+          capabilities?: Record<string, boolean>;
+        };
+        token?: string;
+      } | null;
+      if (!data?.workspace?.id || !data.token) return false;
+
+      // Persist the token so refreshes/deep links work.
+      try { localStorage.setItem('auth-token', data.token); } catch { /* ignore */ }
+
+      workspacesStore.upsertFromConnect({
+        workspace: {
+          id: data.workspace.id,
+          provider: data.workspace.provider || 'opencode.local',
+          directory: data.workspace.directory || directory,
+          status: data.workspace.status === 'error' ? 'error' : 'ready',
+          createdAt: data.workspace.createdAt || Date.now(),
+          capabilities: {
+            chat: true, events: true, reviewDiffs: true, inlineComments: false,
+            fileRead: true, fileSearch: true, commands: true, agents: true,
+            models: true, permissions: true, questions: true,
+            ...(data.workspace.capabilities || {}),
+          },
+        },
+        token: data.token,
+      });
+
+      // If backend returned a different id (should be rare), keep the URL in sync.
+      if (id !== data.workspace.id) {
+        router.replace({ name: 'work', query: { ...route.query, connId: data.workspace.id } });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   await loadWorkspaceData();
-  if (connId.value) { activeConnectionId.value = connId.value; syncConnectionContext(connId.value); await refreshConnections(connId.value); await loadSessionForConnection(connId.value); }
+
+  if (connId.value) {
+    // Deep link case: allow /work?connId=... to re-attach even when localStorage
+    // has no persisted workspace tokens (new browser profile / cleared storage).
+    const bootstrapped = await tryBootstrapDeepLinkConnection(connId.value);
+    if (bootstrapped) {
+      await loadWorkspaceData();
+    }
+    activeConnectionId.value = String(route.query.connId || '');
+    if (activeConnectionId.value) {
+      syncConnectionContext(activeConnectionId.value);
+      await refreshConnections(activeConnectionId.value);
+      await loadSessionForConnection(activeConnectionId.value);
+    }
+  }
   else if (activeConnectionId.value) { syncConnectionContext(activeConnectionId.value); await loadSessionForConnection(activeConnectionId.value); }
 
   // Legacy redirect support: allow /work?connId=...&sessionId=... to open a specific session.
@@ -1063,6 +1146,17 @@ export default {
 .dockview-container :deep(.dockview-theme-abyss) { width: 100%; height: 100%; }
 .dockview-container :deep(.dv-content-container), .dockview-container :deep(.dv-content-container > div), .dockview-container :deep(.dv-groupview) { height: 100%; min-height: 0; }
 .dockview-container :deep(.dv-default-tab-action) { display: none !important; pointer-events: none !important; }
+
+/*
+  Dockview uses a horizontal tab strip per group.
+  On narrower viewports the right-side group can overflow, hiding later tabs
+  (e.g. Codument). Allow horizontal scrolling so all tabs remain reachable.
+*/
+.dockview-container :deep(.dv-tabs-container.dv-horizontal) {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
 .muted { color: var(--muted); font-size: 12px; }
 button { padding: 8px 12px; border-radius: 6px; border: 1px solid transparent; background: var(--accent); color: #0b1120; font-weight: 600; cursor: pointer; font-size: 13px; }
 button.secondary { background: transparent; border-color: var(--border); color: var(--text); }
