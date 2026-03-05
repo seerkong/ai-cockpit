@@ -263,7 +263,7 @@
               v-for="t in codumentTracks"
               :key="t.trackId"
               :value="t.trackId"
-            >{{ t.statusSymbol }} {{ t.trackId }} · {{ t.trackName }}</option>
+            >{{ codumentStatusEmoji(t.statusSymbol) }} {{ t.trackId }} · {{ t.trackName }}</option>
           </select>
           <button
             :class="boundCodumentTrackId === selectedCodumentTrackId ? '' : 'secondary'"
@@ -279,25 +279,25 @@
       <div v-else-if="!codumentTrackTree" class="muted" style="margin-top: 8px;">No task tree.</div>
       <div v-else class="codument-tree">
         <div class="codument-tree-header">
-          <span class="codument-status-symbol">{{ codumentTrackTree.statusSymbol }}</span>
+          <span class="codument-status-symbol">{{ codumentStatusEmoji(codumentTrackTree.statusSymbol) }}</span>
           <strong>{{ codumentTrackTree.trackName }}</strong>
           <span class="muted">{{ codumentTrackTree.status }}</span>
         </div>
         <div v-for="phase in codumentTrackTree.phases" :key="phase.id" class="codument-node codument-node--phase">
           <div class="codument-node-label">
-            <span class="codument-status-symbol">{{ phase.statusSymbol }}</span>
+            <span class="codument-status-symbol">{{ codumentStatusEmoji(phase.statusSymbol) }}</span>
             <span>{{ phase.name }}</span>
             <span class="muted">{{ phase.status }}</span>
           </div>
           <div v-for="task in phase.tasks" :key="task.id" class="codument-node codument-node--task">
             <div class="codument-node-label">
-              <span class="codument-status-symbol">{{ task.statusSymbol }}</span>
+              <span class="codument-status-symbol">{{ codumentStatusEmoji(task.statusSymbol) }}</span>
               <span>{{ task.name }}</span>
               <span class="muted">{{ task.status }}</span>
             </div>
             <div v-for="sub in task.subtasks" :key="sub.id" class="codument-node codument-node--subtask">
               <div class="codument-node-label">
-                <span class="codument-status-symbol">{{ sub.statusSymbol }}</span>
+                <span class="codument-status-symbol">{{ codumentStatusEmoji(sub.statusSymbol) }}</span>
                 <span>{{ sub.name }}</span>
                 <span class="muted">{{ sub.status }}</span>
               </div>
@@ -345,6 +345,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { highlightCode, preloadMarkdownLibs } from '../../lib/markdown';
+import { codumentStatusEmoji } from '../../lib/codument-status';
 import { extractRawMessageAgent, extractRawMessagePreview, sortRawMessagesByCreated } from '@frontend/core';
 import { formatHHMM, readMessageCreatedAtMs } from '@frontend/core';
 

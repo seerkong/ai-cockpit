@@ -504,6 +504,71 @@ function handleOpenSessionManager() {
   sessionManager.open = true; sessionManager.connectionId = tid;
   void loadSessionsForConnection(tid); connectionContextMenu.open = false;
 }
+
+async function handleDisconnectConnection() {
+  const targetId = connectionContextMenu.connectionId;
+  connectionContextMenu.open = false;
+  if (!targetId) return;
+
+  const targetDir = connectionPool.value.find((c) => c.id === targetId)?.directory || '';
+
+  const hasTokenFor = (id: string) => Boolean(workspacesStore.tokenFor(id) || connectionTokens[id]);
+  const authId =
+    connectionPool.value.find((c) => (targetDir ? c.directory === targetDir : true) && hasTokenFor(c.id))?.id ||
+    (activeConnectionId.value && hasTokenFor(activeConnectionId.value) ? activeConnectionId.value : '') ||
+    (hasTokenFor(targetId) ? targetId : '');
+
+  if (!authId) {
+    pushNotification('error', 'No token available for this connection. Please reconnect and retry.');
+    return;
+  }
+
+  const prevPool = connectionPool.value.slice();
+  connectionPool.value = connectionPool.value.filter((c) => c.id !== targetId);
+
+  const wasActive = activeConnectionId.value === targetId;
+  if (wasActive) {
+    stopMessagePolling();
+    activeConnectionId.value = '';
+    sessionId.value = '';
+    messages.value = [];
+    connected.value = false;
+    token.value = null;
+    capabilities.value = null;
+
+    if (route.query.connId) {
+      const q = { ...route.query };
+      delete q.connId;
+      router.replace({ name: 'work', query: q });
+    }
+  }
+
+  try {
+    const resp = await apiFetchForConnection(
+      authId,
+      `/api/v1/workspaces/${encodeURIComponent(authId)}/connections/${encodeURIComponent(targetId)}`,
+      { method: 'DELETE' },
+    );
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(text || `Failed to disconnect connection (${resp.status})`);
+    }
+
+    try { delete connectionTokens[targetId]; } catch { /* ignore */ }
+    try { workspacesStore.forget(targetId); } catch { /* ignore */ }
+
+    await refreshConnections(authId);
+    pushNotification('success', 'Disconnected.');
+  } catch (err) {
+    connectionPool.value = prevPool;
+    pushNotification('error', err instanceof Error ? err.message : 'Failed to disconnect connection.');
+    try {
+      await refreshConnections(authId);
+    } catch {
+      // ignore
+    }
+  }
+}
 function closeContextMenus() { connectionContextMenu.open = false; }
 
 async function handleLoadOlderMessages() { await loadOlderMessages(); }
@@ -768,9 +833,18 @@ async function handleRefreshCodumentTracks() {
       // first track so the Codument tab is usable without manual selection.
       selectedCodumentTrackId.value = tracks[0]?.trackId || '';
     }
+
+    // If we ended up with no selected track (e.g. empty track list), ensure
+    // we don't keep showing a stale tree from a previous connection/track.
+    if (!selectedCodumentTrackId.value) {
+      codumentTrackTree.value = null;
+      codumentTrackTreeError.value = null;
+    }
   } catch (err) {
     codumentTracksError.value = err instanceof Error ? err.message : 'Failed to load codument tracks.';
     codumentTracks.value = [];
+    codumentTrackTree.value = null;
+    codumentTrackTreeError.value = null;
   } finally {
     codumentTracksLoading.value = false;
   }
@@ -854,11 +928,16 @@ function handleUpdateCodumentAutoRefreshEnabled(value: boolean) {
 
 watch(activeConnectionId, async (cid) => {
   stopCodumentPolling();
+
+  // Always clear the previous connection's Codument state immediately.
+  // Otherwise switching to a connection with zero tracks can keep rendering the old task tree.
+  codumentTrackTree.value = null;
+  codumentTrackTreeError.value = null;
+
   if (!cid) {
     codumentTracks.value = [];
     selectedCodumentTrackId.value = '';
     boundCodumentTrackId.value = '';
-    codumentTrackTree.value = null;
     return;
   }
   // Restore bound track from store
