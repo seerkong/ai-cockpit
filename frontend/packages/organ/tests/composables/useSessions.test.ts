@@ -78,6 +78,22 @@ describe('normalizeMessagesPayload', () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.info.id).toBe('m2');
   });
+
+  test('normalizes string model references to {providerID, modelID}', () => {
+    const result = normalizeMessagesPayload([
+      {
+        info: { id: 'm1', role: 'assistant', model: 'openai/gpt-4o' },
+        parts: [],
+      },
+      {
+        info: { id: 'm2', role: 'assistant', model: 'openrouter/anthropic/claude-3-opus' },
+        parts: [],
+      },
+    ]);
+    expect(result).toHaveLength(2);
+    expect((result[0]?.info as any).model).toEqual({ providerID: 'openai', modelID: 'gpt-4o' });
+    expect((result[1]?.info as any).model).toEqual({ providerID: 'openrouter', modelID: 'anthropic/claude-3-opus' });
+  });
 });
 
 describe('extractSessionId', () => {

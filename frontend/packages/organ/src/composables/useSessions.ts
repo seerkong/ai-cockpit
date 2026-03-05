@@ -64,6 +64,36 @@ export function normalizeSessionsPayload(payload: unknown): SessionInfo[] {
 export function normalizeMessagesPayload(payload: unknown): MessageWithParts[] {
   const root = asObject(payload);
   const list = Array.isArray(payload) ? payload : Array.isArray(root?.messages) ? root.messages : [];
+
+  function normalizeModelRef(value: unknown): { providerID: string; modelID: string } | null {
+    if (typeof value === 'string') {
+      const raw = value.trim();
+      if (!raw) return null;
+      // OpenCode canonical string: provider/model (modelID may contain additional '/')
+      const slash = raw.indexOf('/');
+      if (slash !== -1) {
+        const providerID = raw.slice(0, slash).trim();
+        const modelID = raw.slice(slash + 1).trim();
+        if (providerID && modelID) return { providerID, modelID };
+      }
+      // Internal UI key form: provider:model
+      const colon = raw.indexOf(':');
+      if (colon !== -1) {
+        const providerID = raw.slice(0, colon).trim();
+        const modelID = raw.slice(colon + 1).trim();
+        if (providerID && modelID) return { providerID, modelID };
+      }
+      return null;
+    }
+
+    const obj = asObject(value);
+    if (!obj) return null;
+    const providerID = asString(obj.providerID || obj.providerId || obj.provider);
+    const modelID = asString(obj.modelID || obj.modelId || obj.id || obj.name);
+    if (!providerID || !modelID) return null;
+    return { providerID, modelID };
+  }
+
   return list
     .map((item) => {
       const row = asObject(item);
@@ -73,7 +103,16 @@ export function normalizeMessagesPayload(payload: unknown): MessageWithParts[] {
       const id = asString(info?.id);
       const role = asString(info?.role);
       if (!id || !role) return null;
-      return { info: { ...(info ?? {}), id, role } as MessageInfo, parts: parts as MessagePart[] } as MessageWithParts;
+
+      const normalizedModel = normalizeModelRef(info?.model);
+      const nextInfo: MessageInfo = {
+        ...(info ?? {}),
+        id,
+        role,
+        ...(normalizedModel ? { model: normalizedModel } : {}),
+      } as MessageInfo;
+
+      return { info: nextInfo, parts: parts as MessagePart[] } as MessageWithParts;
     })
     .filter((item): item is MessageWithParts => item !== null);
 }

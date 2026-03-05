@@ -255,7 +255,7 @@
             class="secondary model-button"
             type="button"
             :disabled="!modelOptions.length || composerBlocked"
-            :title="selectedModelKey || '(model)'"
+            :title="selectedModelButtonLabel || '(model)'"
             @click="toggleModelPopover"
           >
             Model: {{ selectedModelButtonLabel }}
@@ -558,10 +558,30 @@ function findSessionBoundModelKey(messages: MessageWithParts[]): string {
     const msg = messages[i];
     const info = asObject(msg?.info);
     if (!info) continue;
-    const model = asObject(info.model);
-    if (!model) continue;
-    const providerID = asString(model.providerID || model.providerId || model.provider);
-    const modelID = asString(model.modelID || model.modelId || model.id);
+
+    let providerID = '';
+    let modelID = '';
+    if (typeof info.model === 'string') {
+      const raw = asString(info.model);
+      if (raw) {
+        const slash = raw.indexOf('/');
+        const colon = raw.indexOf(':');
+        if (slash !== -1) {
+          providerID = raw.slice(0, slash).trim();
+          modelID = raw.slice(slash + 1).trim();
+        } else if (colon !== -1) {
+          providerID = raw.slice(0, colon).trim();
+          modelID = raw.slice(colon + 1).trim();
+        }
+      }
+    } else {
+      const model = asObject(info.model);
+      if (model) {
+        providerID = asString(model.providerID || model.providerId || model.provider);
+        modelID = asString(model.modelID || model.modelId || model.id || model.name);
+      }
+    }
+
     if (!providerID || !modelID) continue;
     const key = `${providerID}:${modelID}`;
     if (!fallback) fallback = key;
@@ -872,6 +892,12 @@ watch(
       autoSettingSelection.value = true;
       selectedModelKey.value = desiredModelKey;
       queueMicrotask(() => { autoSettingSelection.value = false; });
+    } else if (!sessionModelKey && defaultModelKey && !modelTouched.value && currentModel === fallbackModelKey && defaultModelKey !== currentModel) {
+      // If we initially fell back to the first model option (before defaults finished loading),
+      // promote the OpenCode default model once it becomes available.
+      autoSettingSelection.value = true;
+      selectedModelKey.value = defaultModelKey;
+      queueMicrotask(() => { autoSettingSelection.value = false; });
     }
   },
   { immediate: true, deep: false },
@@ -881,7 +907,8 @@ const modelPopoverOpen = ref(false);
 const selectedModelButtonLabel = computed(() => {
   const key = selectedModelKey.value;
   const parsed = parseSelectedModel(key);
-  return parsed?.modelID || key || '(model)';
+  if (parsed) return `${parsed.providerID}/${parsed.modelID}`;
+  return key || '(model)';
 });
 
 function toggleModelPopover() {
